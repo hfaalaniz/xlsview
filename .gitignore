@@ -1,0 +1,16 @@
+# Build output de .NET
+app/bin/
+app/obj/
+
+# WebView2 user data / runtime local
+**/WebView2/
+
+# Archivos temporales de Office (locks)
+~$*
+.~lock.*#
+
+# SO / editor
+Thumbs.db
+Desktop.ini
+.vs/
+*.user

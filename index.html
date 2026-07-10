@@ -1,0 +1,418 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Visor / Editor de Hojas de Cálculo</title>
+<link rel="icon" href="data:," /><!-- evita el 404 de favicon.ico -->
+
+
+<!-- Estilos de Univer (local) -->
+<link rel="stylesheet" href="lib/univer-preset-sheets-core.css" />
+
+<style>
+  :root {
+    --bg: #1e1e1e;
+    --panel: #252526;
+    --panel2: #2d2d30;
+    --border: #3c3c3c;
+    --text: #e6e6e6;
+    --text-dim: #9a9a9a;
+    --accent: #3d7eff;
+    --accent-hover: #5a92ff;
+    --toolbar-h: 44px;
+    --tabbar-h: 34px;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    overflow: hidden;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 13px;
+    -webkit-user-select: none; user-select: none;
+  }
+
+  #app { display: flex; flex-direction: column; height: 100vh; width: 100vw; }
+
+  /* ---------- Toolbar superior (asa de arrastre + acciones) ---------- */
+  #toolbar {
+    height: var(--toolbar-h);
+    min-height: var(--toolbar-h);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    -webkit-app-region: drag;
+  }
+  #dragHandle {
+    flex: 1 1 auto;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: default;
+    min-width: 0;
+  }
+  #dragHandle .brand {
+    font-weight: 600; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #dragHandle .filename {
+    color: var(--text-dim); font-size: 12px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    min-width: 0;
+  }
+  #dragHandle .dirty { color: #e2c08d; margin-left: 4px; }
+
+  .tb-group { display: flex; align-items: center; gap: 4px; }
+  .tb-sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+
+  button.tb {
+    -webkit-app-region: no-drag;
+    height: 30px;
+    padding: 0 10px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    font-size: 12.5px;
+    display: inline-flex; align-items: center; gap: 6px;
+    white-space: nowrap;
+  }
+  button.tb:hover { background: var(--panel2); border-color: var(--border); }
+  button.tb:active { background: #37373d; }
+  button.tb.primary { background: var(--accent); }
+  button.tb.primary:hover { background: var(--accent-hover); }
+  button.tb.icon-only { width: 34px; padding: 0; justify-content: center; font-size: 15px; }
+  button.tb:disabled { opacity: 0.4; cursor: default; }
+
+  /* ---------- Barra de pestañas (archivos abiertos) ---------- */
+  #tabbar {
+    height: var(--tabbar-h);
+    min-height: var(--tabbar-h);
+    display: flex;
+    align-items: stretch;
+    background: var(--panel2);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+  #tabbar::-webkit-scrollbar { height: 6px; }
+  #tabbar::-webkit-scrollbar-thumb { background: #555; border-radius: 3px; }
+
+  .tab {
+    -webkit-app-region: no-drag;
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 10px 0 12px;
+    max-width: 220px;
+    border-right: 1px solid var(--border);
+    cursor: pointer;
+    color: var(--text-dim);
+    background: var(--panel2);
+    white-space: nowrap;
+    position: relative;
+  }
+  .tab:hover { background: #323234; }
+  .tab.active { background: var(--bg); color: var(--text); }
+  .tab.active::after {
+    content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+    background: var(--accent);
+  }
+  .tab .label { overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+  .tab .dot { color: #e2c08d; font-size: 16px; line-height: 1; }
+  .tab .close {
+    width: 18px; height: 18px; border-radius: 4px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 13px; opacity: 0.6;
+  }
+  .tab .close:hover { background: rgba(255,255,255,0.15); color: var(--text); opacity: 1; }
+
+  /* ---------- Contenedor del editor (Univer) ---------- */
+  #stage { flex: 1 1 auto; position: relative; min-height: 0; background: var(--bg); }
+  #univer-host { position: absolute; inset: 0; }
+  #univer-host.hidden { display: none; }
+
+  /* ---------- Pantalla de bienvenida (sin archivos) ---------- */
+  #welcome {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 18px; color: var(--text-dim);
+    background: var(--bg);
+  }
+  #welcome .big { font-size: 46px; opacity: 0.5; }
+  #welcome h1 { margin: 0; font-size: 18px; font-weight: 600; color: var(--text); }
+  #welcome p { margin: 0; font-size: 13px; }
+  #welcome .hint { font-size: 12px; opacity: 0.7; }
+  #welcome.hidden { display: none; }
+  #dropzone.dragover {
+    outline: 3px dashed var(--accent);
+    outline-offset: -14px;
+  }
+
+  /* ---------- Overlay de carga ---------- */
+  #loading {
+    position: absolute; inset: 0;
+    display: none; align-items: center; justify-content: center;
+    flex-direction: column; gap: 14px;
+    background: rgba(30,30,30,0.85); z-index: 50;
+    color: var(--text);
+  }
+  #loading.show { display: flex; }
+  .spinner {
+    width: 34px; height: 34px; border-radius: 50%;
+    border: 3px solid #444; border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---------- Toast ---------- */
+  #toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: #333; color: #fff; padding: 9px 16px; border-radius: 8px;
+    font-size: 12.5px; box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+    opacity: 0; pointer-events: none; transition: opacity 0.25s; z-index: 100;
+    border: 1px solid var(--border);
+  }
+  #toast.show { opacity: 1; }
+  #toast.err { background: #5a2020; border-color: #7a3030; }
+  #toast.ok  { background: #204a24; border-color: #2f6a34; }
+
+  /* Univer usa tema claro por defecto; forzamos que su raíz llene el hueco */
+  #univer-host .univer-app-container,
+  #univer-host .univer-container { height: 100% !important; }
+  input[type="file"] { display: none; }
+
+  /* ---------- Modal de configuración de página ---------- */
+  .modal {
+    position: fixed; inset: 0; z-index: 200;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.5);
+  }
+  .modal.open { display: flex; }
+  .modal-card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    width: 560px; max-width: 94vw; max-height: 90vh; display: flex; flex-direction: column;
+    box-shadow: 0 12px 48px rgba(0,0,0,0.5);
+  }
+  .modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--border); font-weight: 600;
+  }
+  .modal-x {
+    -webkit-app-region: no-drag; background: transparent; border: 0; color: var(--text-dim);
+    font-size: 16px; cursor: pointer; width: 28px; height: 28px; border-radius: 6px;
+  }
+  .modal-x:hover { background: var(--panel2); color: var(--text); }
+  .modal-body { padding: 14px 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px; }
+  .modal-foot {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding: 12px 16px; border-top: 1px solid var(--border);
+  }
+  .modal fieldset { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin: 0; }
+  .modal legend { padding: 0 6px; color: var(--text-dim); font-size: 12px; }
+  .modal label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--text-dim); }
+  .modal label.wide { margin-bottom: 8px; }
+  .modal label.radio, .modal label.chk { flex-direction: row; align-items: center; gap: 8px; color: var(--text); }
+  .modal input[type="text"], .modal input[type="number"], .modal select {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); padding: 6px 8px; font-size: 13px; font-family: inherit;
+  }
+  .modal input:focus, .modal select:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  .pg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .pg-grid4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; }
+  .pg-scale { display: flex; flex-direction: column; gap: 10px; }
+  .pg-checks { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .hint2 { color: var(--text-dim); font-size: 11px; }
+
+  /* ---------- Ventana de vista previa ---------- */
+  #printPreview {
+    position: fixed; inset: 0; z-index: 210; background: #525659;
+    display: none; flex-direction: column;
+  }
+  #printPreview.open { display: flex; }
+  .pp-bar {
+    flex: 0 0 auto; display: flex; align-items: center; gap: 10px;
+    padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--border);
+  }
+  .pp-title { font-weight: 600; }
+  .pp-count { color: var(--text-dim); font-size: 12px; }
+  .pp-spacer { flex: 1 1 auto; }
+  #printFrame { flex: 1 1 auto; width: 100%; border: 0; background: #525659; }
+</style>
+
+<div id="app">
+  <!-- ---------- Toolbar ---------- -->
+  <div id="toolbar">
+    <div id="dragHandle" title="Arrastra para mover la ventana">
+      <span class="brand">📊 XlsView</span>
+      <span class="filename" id="curName">— sin archivo —</span>
+    </div>
+
+    <div class="tb-group">
+      <button class="tb" id="btnOpen">📂 Abrir</button>
+      <button class="tb primary" id="btnSave" disabled>💾 Guardar</button>
+      <button class="tb" id="btnSaveAs" disabled>Guardar como…</button>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <div class="tb-group">
+      <button class="tb" id="btnPrint" title="Imprimir / Vista previa (Ctrl+P)" disabled>🖨️ Imprimir</button>
+      <button class="tb" id="btnPageSetup" title="Configurar página y márgenes" disabled>⚙️ Página</button>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <div class="tb-group">
+      <button class="tb icon-only" id="btnZoomOut" title="Alejar" disabled>−</button>
+      <button class="tb icon-only" id="btnZoomIn" title="Acercar" disabled>+</button>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <div class="tb-group">
+      <button class="tb icon-only" id="btnMin" title="Minimizar (Ctrl+M)">▁</button>
+      <button class="tb icon-only" id="btnFull" title="Pantalla completa (F11)">⛶</button>
+      <button class="tb icon-only" id="btnClose" title="Cerrar (Esc)">✕</button>
+    </div>
+  </div>
+
+  <!-- ---------- Pestañas ---------- -->
+  <div id="tabbar"></div>
+
+  <!-- ---------- Escenario ---------- -->
+  <div id="stage">
+    <div id="univer-host" class="hidden"></div>
+
+    <div id="welcome">
+      <div class="big">📊</div>
+      <h1>Visor / Editor de Hojas de Cálculo</h1>
+      <p>Abre un archivo <b>.xlsx</b>, <b>.xlsm</b>, <b>.xls</b> o <b>.csv</b></p>
+      <button class="tb primary" id="btnOpenWelcome" style="height:34px;padding:0 16px">📂 Abrir archivo…</button>
+      <p class="hint">También puedes arrastrar y soltar un archivo en esta ventana</p>
+    </div>
+
+    <div id="loading">
+      <div class="spinner"></div>
+      <div id="loadingText">Cargando…</div>
+    </div>
+  </div>
+</div>
+
+<input type="file" id="filePicker" accept=".xlsx,.xlsm,.xls,.csv" />
+<div id="toast"></div>
+
+<!-- ===================== Modal: Configurar página ===================== -->
+<div id="pageModal" class="modal">
+  <div class="modal-card">
+    <div class="modal-head">
+      <span>⚙️ Configurar página</span>
+      <button class="modal-x" id="pgClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="pg-grid">
+        <label>Orientación
+          <select id="pgOrientation">
+            <option value="portrait">Vertical</option>
+            <option value="landscape">Horizontal</option>
+          </select>
+        </label>
+        <label>Tamaño de papel
+          <select id="pgPaper">
+            <option value="9">A4</option>
+            <option value="1">Carta</option>
+            <option value="5">Legal</option>
+            <option value="8">A3</option>
+            <option value="11">A5</option>
+          </select>
+        </label>
+      </div>
+
+      <fieldset>
+        <legend>Márgenes (pulgadas)</legend>
+        <div class="pg-grid4">
+          <label>Superior <input type="number" id="pgMTop" step="0.05" min="0"></label>
+          <label>Inferior <input type="number" id="pgMBottom" step="0.05" min="0"></label>
+          <label>Izquierdo <input type="number" id="pgMLeft" step="0.05" min="0"></label>
+          <label>Derecho <input type="number" id="pgMRight" step="0.05" min="0"></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Escala</legend>
+        <div class="pg-scale">
+          <label class="radio"><input type="radio" name="pgScaleMode" id="pgModeScale" value="scale"> Ajustar al <input type="number" id="pgScale" min="10" max="400" step="5" style="width:60px"> %</label>
+          <label class="radio"><input type="radio" name="pgScaleMode" id="pgModeFit" value="fit"> Ajustar a
+            <input type="number" id="pgFitW" min="1" max="20" step="1" style="width:48px"> pág. ancho ×
+            <input type="number" id="pgFitH" min="0" max="20" step="1" style="width:48px"> alto <span class="hint2">(0 = automático)</span>
+          </label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Área de impresión y títulos</legend>
+        <label class="wide">Área de impresión <input type="text" id="pgPrintArea" placeholder="ej. A1:G50 (vacío = todo)"></label>
+        <div class="pg-grid">
+          <label>Repetir filas (títulos) <input type="text" id="pgRepeatRows" placeholder="ej. 1:7"></label>
+          <label>Repetir columnas <input type="text" id="pgRepeatCols" placeholder="ej. A:B"></label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Encabezado / pie de página</legend>
+        <label class="wide">Encabezado <input type="text" id="pgHeader" placeholder="&A = hoja · &P = página · &D = fecha · &F = archivo"></label>
+        <label class="wide">Pie de página <input type="text" id="pgFooter" placeholder="Página &P de &N"></label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Opciones</legend>
+        <div class="pg-checks">
+          <label class="chk"><input type="checkbox" id="pgGridLines"> Imprimir líneas de cuadrícula</label>
+          <label class="chk"><input type="checkbox" id="pgHeadings"> Imprimir encabezados de fila/columna</label>
+          <label class="chk"><input type="checkbox" id="pgHCenter"> Centrar horizontalmente</label>
+          <label class="chk"><input type="checkbox" id="pgVCenter"> Centrar verticalmente</label>
+        </div>
+      </fieldset>
+    </div>
+    <div class="modal-foot">
+      <button class="tb" id="pgCancel">Cancelar</button>
+      <button class="tb" id="pgPreview">👁️ Vista previa</button>
+      <button class="tb primary" id="pgApply">Aplicar</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===================== Vista previa de impresión ===================== -->
+<div id="printPreview">
+  <div class="pp-bar">
+    <span class="pp-title">Vista previa de impresión</span>
+    <span class="pp-count" id="printPageCount"></span>
+    <span class="pp-spacer"></span>
+    <button class="tb" id="ppSetup">⚙️ Página</button>
+    <button class="tb primary" id="ppPrint">🖨️ Imprimir</button>
+    <button class="tb" id="ppClose">Cerrar</button>
+  </div>
+  <iframe id="printFrame" title="Vista previa"></iframe>
+</div>
+
+<!-- ===================== Librerías locales ===================== -->
+<script src="lib/xlsx.full.min.js"></script>
+<script src="lib/react.production.min.js"></script>
+<script src="lib/react-dom.production.min.js"></script>
+<script src="lib/rxjs.umd.min.js"></script>
+<script src="lib/univer-presets.js"></script>
+<script src="lib/univer-preset-sheets-core.js"></script>
+<script>
+  // El locale del preset compone varios sub-locales; UniverDesignEnUS no viene
+  // en los bundles UMD, así que lo definimos vacío para que merge() no falle.
+  window.UniverDesignEnUS = window.UniverDesignEnUS || {};
+</script>
+<script src="lib/univer-locale-en-US.js"></script>
+
+<!-- ===================== Lógica de la app ===================== -->
+<script src="xlsx-styles.js"></script>
+<script src="print.js"></script>
+<script src="app.js"></script>
