@@ -180,40 +180,118 @@
     // (NO pasamos 'description' como objeto: cuando falta, Univer genera el
     // descriptor a partir del triplete. Pasarlo como string dispara un fallo del
     // LocaleService.)  'func' recibe los argumentos ya evaluados (primitivos).
+    // Utilidades locales para las funciones.
+    const num = (x, def) => { const n = Number(x); return isNaN(n) ? (def == null ? 0 : def) : n; };
+    const opt = (x, def) => (x == null || x === "") ? def : Number(x);
+
     const calculate = [
-      [(monto, tasa) => {
-        const m = Number(monto) || 0;
-        const t = (tasa == null || tasa === "") ? 0.21 : Number(tasa);
-        return m * (1 + t);
-      }, "IVA", "Aplica IVA a un monto (21% por defecto): IVA(monto, [tasa])"],
+      // ===================== COMERCIAL / CONTABLE =====================
+      [(monto, tasa) => num(monto) * (1 + opt(tasa, 0.21)),
+        "IVA", "Aplica IVA a un monto (21% por defecto): IVA(monto,[tasa])"],
+      [(total, tasa) => num(total) / (1 + opt(tasa, 0.21)),
+        "NETO", "Quita el IVA de un total (21% por defecto): NETO(total,[tasa])"],
+      [(base, tasa) => num(base) * opt(tasa, 0.21),
+        "IIBB", "Ingresos brutos sobre una base: IIBB(base,[tasa])"],
+      [(costo, margen) => { const m = opt(margen, 0.4); return num(costo) / (1 - m); },
+        "PRECIOVENTA", "Precio de venta según margen: PRECIOVENTA(costo,[margen%])"],
+      [(costo, pv) => num(pv) === 0 ? 0 : (num(pv) - num(costo)) / num(pv),
+        "MARGEN", "Margen sobre venta: MARGEN(costo, precioVenta)"],
+      [(costo, pv) => num(costo) === 0 ? 0 : (num(pv) - num(costo)) / num(costo),
+        "MARKUP", "Recargo sobre costo: MARKUP(costo, precioVenta)"],
+      [(precio, pct) => num(precio) * (1 - opt(pct, 0)),
+        "DESCUENTO", "Precio con descuento: DESCUENTO(precio, pct)"],
+      [(viejo, nuevo) => num(viejo) === 0 ? 0 : (num(nuevo) - num(viejo)) / num(viejo),
+        "VARIACIONPCT", "Variación porcentual: VARIACIONPCT(anterior, actual)"],
+      [(parte, total) => num(total) === 0 ? 0 : num(parte) / num(total),
+        "PORCENTAJEDE", "Qué porcentaje es parte de total: PORCENTAJEDE(parte, total)"],
 
-      [(total, tasa) => {
-        const v = Number(total) || 0;
-        const t = (tasa == null || tasa === "") ? 0.21 : Number(tasa);
-        return v / (1 + t);
-      }, "NETO", "Quita el IVA de un total (21% por defecto): NETO(total, [tasa])"],
+      // ===================== FINANZAS =====================
+      [(capital, tasa, periodos) => num(capital) * opt(tasa, 0) * num(periodos),
+        "INTERESSIMPLE", "Interés simple: INTERESSIMPLE(capital, tasa, periodos)"],
+      [(capital, tasa, periodos) => num(capital) * Math.pow(1 + opt(tasa, 0), num(periodos)) - num(capital),
+        "INTERESCOMP", "Interés compuesto ganado: INTERESCOMP(capital, tasa, periodos)"],
+      [(vp, tasa, periodos) => num(vp) * Math.pow(1 + opt(tasa, 0), num(periodos)),
+        "VALORFUTURO", "Valor futuro: VALORFUTURO(valorPresente, tasa, periodos)"],
+      [(monto, tasa, cuotas) => {
+        const i = opt(tasa, 0), n = num(cuotas);
+        if (i === 0) return num(monto) / n;
+        return num(monto) * i / (1 - Math.pow(1 + i, -n));
+      }, "CUOTAFIJA", "Cuota fija (sistema francés): CUOTAFIJA(monto, tasaPeriodo, nCuotas)"],
+      [(nominalAnual, m) => Math.pow(1 + opt(nominalAnual, 0) / opt(m, 12), opt(m, 12)) - 1,
+        "TASAEFECTIVA", "Tasa efectiva anual: TASAEFECTIVA(nominalAnual,[capitalizaciones=12])"],
 
-      [(horas, valorHora, cargas) => {
-        const h = Number(horas) || 0;
-        const vh = Number(valorHora) || 0;
-        const c = (cargas == null || cargas === "") ? 0 : Number(cargas);
-        return h * vh * (1 + c);
-      }, "MANOOBRA", "Costo de mano de obra: MANOOBRA(horas, valorHora, [cargas%])"],
+      // ===================== INGENIERÍA ELÉCTRICA =====================
+      [(tension, corriente, cosphi) => Math.sqrt(3) * num(tension) * num(corriente) * opt(cosphi, 0.85),
+        "POTENCIA3F", "Potencia trifásica (W): POTENCIA3F(V, I, [cosφ])"],
+      [(tension, corriente, cosphi) => num(tension) * num(corriente) * opt(cosphi, 1),
+        "POTENCIA1F", "Potencia monofásica (W): POTENCIA1F(V, I, [cosφ])"],
+      [(longitud, corriente, seccion, kappa) =>
+        (2 * num(longitud) * num(corriente)) / (opt(kappa, 56) * num(seccion, 1)),
+        "CAIDATENSION", "Caída de tensión monofásica (V): CAIDATENSION(L, I, S, [κ])"],
+      [(longitud, corriente, seccion, cosphi, kappa) =>
+        (Math.sqrt(3) * num(longitud) * num(corriente) * opt(cosphi, 0.85)) / (opt(kappa, 56) * num(seccion, 1)),
+        "CAIDA3F", "Caída de tensión trifásica (V): CAIDA3F(L, I, S, [cosφ], [κ])"],
+      [(tension, resistencia) => num(resistencia) === 0 ? 0 : num(tension) / num(resistencia),
+        "OHM", "Ley de Ohm, corriente (A): OHM(tensión, resistencia)"],
+      [(potencia, horas, precioKwh) => (num(potencia) / 1000) * num(horas) * opt(precioKwh, 0),
+        "CONSUMOKWH", "Consumo eléctrico ($): CONSUMOKWH(potenciaW, horas, [precioKwh])"],
+      [(corriente, tension, potenciaAparente) =>
+        num(potenciaAparente) === 0 ? 0 : (num(tension) * num(corriente)) / num(potenciaAparente),
+        "FACTORPOT", "Factor de potencia: FACTORPOT(I, V, potenciaAparente)"],
 
-      [(tension, corriente, cosphi) => {
-        const v = Number(tension) || 0;
-        const i = Number(corriente) || 0;
-        const cp = (cosphi == null || cosphi === "") ? 0.85 : Number(cosphi);
-        return Math.sqrt(3) * v * i * cp;
-      }, "POTENCIA3F", "Potencia trifásica en W: POTENCIA3F(V, I, [cosφ])"],
+      // ===================== MATEMÁTICA / GEOMETRÍA =====================
+      [(a, b) => Math.sqrt(num(a) * num(a) + num(b) * num(b)),
+        "HIPOTENUSA", "Hipotenusa (Pitágoras): HIPOTENUSA(catetoA, catetoB)"],
+      [(radio) => Math.PI * num(radio) * num(radio),
+        "AREACIRCULO", "Área de un círculo: AREACIRCULO(radio)"],
+      [(base, altura) => num(base) * num(altura) / 2,
+        "AREATRIANGULO", "Área de un triángulo: AREATRIANGULO(base, altura)"],
+      [(valor, multiplo) => { const mlt = opt(multiplo, 1); return mlt === 0 ? num(valor) : Math.round(num(valor) / mlt) * mlt; },
+        "REDONDEARM", "Redondea al múltiplo más cercano: REDONDEARM(valor, múltiplo)"],
+      [(peso, altura) => { const h = num(altura); return h === 0 ? 0 : num(peso) / (h * h); },
+        "IMC", "Índice de masa corporal: IMC(pesoKg, alturaM)"],
+      [(a, b, c) => num(b) === 0 ? 0 : num(a) * num(c) / num(b),
+        "REGLA3", "Regla de tres simple: REGLA3(a, b, c) = a·c/b"],
 
-      [(longitud, corriente, seccion, kappa) => {
-        const L = Number(longitud) || 0;
-        const I = Number(corriente) || 0;
-        const S = Number(seccion) || 1;
-        const k = (kappa == null || kappa === "") ? 56 : Number(kappa);
-        return (2 * L * I) / (k * S);
-      }, "CAIDATENSION", "Caída de tensión monofásica (V): CAIDATENSION(L, I, S, [κ])"],
+      // ===================== CONVERSIÓN =====================
+      [(c) => num(c) * 9 / 5 + 32, "CELSIUS_F", "Celsius→Fahrenheit: CELSIUS_F(°C)"],
+      [(f) => (num(f) - 32) * 5 / 9, "FAHRENHEIT_C", "Fahrenheit→Celsius: FAHRENHEIT_C(°F)"],
+      [(cv) => num(cv) * 735.49875, "CV_W", "Caballos de vapor→Watts: CV_W(cv)"],
+      [(km, litros) => num(litros) === 0 ? 0 : num(km) / num(litros),
+        "CONSUMOKML", "Rendimiento km/l: CONSUMOKML(km, litros)"],
+
+      // ===================== TEXTO / UTILIDAD =====================
+      [(texto) => String(texto == null ? "" : texto).split(/\s+/).filter(Boolean)
+        .map(p => p.charAt(0).toUpperCase()).join(""),
+        "INICIALES", "Iniciales de un nombre: INICIALES(\"Juan Pérez\") → JP"],
+      [(texto) => String(texto == null ? "" : texto).replace(/[^0-9]/g, ""),
+        "SOLONUMEROS", "Deja solo los dígitos: SOLONUMEROS(\"AB-12-3\") → 123"],
+      [(texto) => {
+        const w = String(texto == null ? "" : texto).toLowerCase().split(/\s+/);
+        return w.map(x => x ? x.charAt(0).toUpperCase() + x.slice(1) : x).join(" ");
+      }, "TITULAR", "Pone en mayúscula cada palabra: TITULAR(\"hola mundo\")"],
+      [(texto) => String(texto == null ? "" : texto).split(/\s+/).filter(Boolean).length,
+        "CONTARPALABRAS", "Cuenta palabras: CONTARPALABRAS(texto)"],
+
+      // ===================== FECHA =====================
+      [(nacimiento) => {
+        // nacimiento como número de serie de Excel (días desde 1899-12-30)
+        const serial = num(nacimiento);
+        if (!serial) return 0;
+        const ms = (serial - 25569) * 86400000;   // a epoch Unix
+        const d = new Date(ms);
+        const hoy = new Date();
+        let edad = hoy.getUTCFullYear() - d.getUTCFullYear();
+        const mm = hoy.getUTCMonth() - d.getUTCMonth();
+        if (mm < 0 || (mm === 0 && hoy.getUTCDate() < d.getUTCDate())) edad--;
+        return edad;
+      }, "EDAD", "Edad en años desde una fecha: EDAD(fechaNacimiento)"],
+      [(fecha) => {
+        const serial = num(fecha);
+        if (!serial) return 0;
+        const d = new Date((serial - 25569) * 86400000);
+        return Math.floor(d.getUTCMonth() / 3) + 1;
+      }, "TRIMESTRE", "Trimestre (1-4) de una fecha: TRIMESTRE(fecha)"],
     ];
     try { univerAPI.registerFunction({ calculate }); customFnsRegistered = true; }
     catch (e) { /* si la firma cambia entre versiones, no rompemos el arranque */ }
@@ -1222,10 +1300,24 @@
       "toast('Negativos resaltados');",
   };
 
+  // Macros de ejemplo que se SIEMBRAN la primera vez (aparecen ya guardadas en
+  // el botón ⚡ Macro). Coinciden con la hoja "Macros" del libro de ejemplos.
+  const MACRO_SEED = [
+    { name: "Numerar filas", code: MACRO_EXAMPLES.numerar },
+    { name: "Fila de totales", code: MACRO_EXAMPLES.totales },
+    { name: "Resaltar negativos", code: MACRO_EXAMPLES.resaltar },
+    { name: "Limpiar formato", code: MACRO_EXAMPLES.limpiar },
+  ];
+
   function loadMacros() {
     try { macros = JSON.parse(localStorage.getItem(MACRO_STORE) || "[]"); }
     catch (e) { macros = []; }
     if (!Array.isArray(macros)) macros = [];
+    // Primera vez (nunca se guardó nada): sembrar las macros de ejemplo.
+    if (localStorage.getItem(MACRO_STORE) == null) {
+      macros = MACRO_SEED.map((m) => ({ name: m.name, code: m.code }));
+      saveMacros();
+    }
   }
   function saveMacros() {
     try { localStorage.setItem(MACRO_STORE, JSON.stringify(macros)); } catch (e) {}
@@ -1463,6 +1555,7 @@
     wireUI();
     wireDrag();
     wirePrintUI();
+    loadMacros();          // siembra las macros de ejemplo la primera vez
     setWelcome(true);
     updateToolbar();
 

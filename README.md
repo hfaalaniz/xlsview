@@ -157,19 +157,73 @@ referencias entre hojas y literales de matriz. Único límite: los arrays con
 **derrame (spill)** (`SEQUENCE`, `FILTER`, `SORT`, `UNIQUE`) no se materializan
 en varias celdas con el preset actual.
 
-**Funciones propias de negocio** (ya incluidas, definidas en `app.js` con
-`univerAPI.registerFunction`, se usan como nativas):
+**Banco de funciones propias** — 38 funciones definidas en `app.js`
+(`registerCustomFunctions()`), registradas con `univerAPI.registerFunction` y
+usables como nativas. Se anidan con las de Univer (`=ROUND(IVA(1000),0)`).
 
+*Comercial / contable*
 | Función | Qué hace |
 |---------|----------|
 | `=IVA(monto; [tasa])` | Aplica IVA (21% por defecto) |
 | `=NETO(total; [tasa])` | Quita el IVA de un total |
-| `=MANOOBRA(horas; valorHora; [cargas%])` | Costo de mano de obra |
-| `=POTENCIA3F(V; I; [cosφ])` | Potencia trifásica en W (√3·V·I·cosφ) |
-| `=CAIDATENSION(L; I; S; [κ])` | Caída de tensión monofásica en V |
+| `=IIBB(base; [tasa])` | Ingresos brutos sobre una base |
+| `=PRECIOVENTA(costo; [margen%])` | Precio de venta según margen |
+| `=MARGEN(costo; precioVenta)` | Margen sobre la venta |
+| `=MARKUP(costo; precioVenta)` | Recargo sobre el costo |
+| `=DESCUENTO(precio; pct)` | Precio con descuento |
+| `=VARIACIONPCT(anterior; actual)` | Variación porcentual |
+| `=PORCENTAJEDE(parte; total)` | Qué % es la parte del total |
 
-Para añadir las tuyas, agrega un triplete `[func, "NOMBRE", "descripción"]` al
-array `calculate` en `registerCustomFunctions()` de `app.js`.
+*Finanzas*
+| Función | Qué hace |
+|---------|----------|
+| `=INTERESSIMPLE(capital; tasa; periodos)` | Interés simple |
+| `=INTERESCOMP(capital; tasa; periodos)` | Interés compuesto ganado |
+| `=VALORFUTURO(vp; tasa; periodos)` | Valor futuro |
+| `=CUOTAFIJA(monto; tasa; nCuotas)` | Cuota fija (sistema francés) |
+| `=TASAEFECTIVA(nominal; [capit.=12])` | Tasa efectiva anual (TEA) |
+
+*Ingeniería eléctrica*
+| Función | Qué hace |
+|---------|----------|
+| `=POTENCIA3F(V; I; [cosφ])` | Potencia trifásica (W) |
+| `=POTENCIA1F(V; I; [cosφ])` | Potencia monofásica (W) |
+| `=CAIDATENSION(L; I; S; [κ])` | Caída de tensión monofásica (V) |
+| `=CAIDA3F(L; I; S; [cosφ]; [κ])` | Caída de tensión trifásica (V) |
+| `=OHM(tensión; resistencia)` | Corriente por ley de Ohm (A) |
+| `=CONSUMOKWH(W; horas; [$kWh])` | Costo del consumo eléctrico |
+| `=FACTORPOT(I; V; potAparente)` | Factor de potencia |
+
+*Matemática / geometría*
+| Función | Qué hace |
+|---------|----------|
+| `=HIPOTENUSA(a; b)` | Hipotenusa (Pitágoras) |
+| `=AREACIRCULO(radio)` · `=AREATRIANGULO(base; alt)` | Áreas |
+| `=REDONDEARM(valor; múltiplo)` | Redondea al múltiplo más cercano |
+| `=IMC(pesoKg; alturaM)` | Índice de masa corporal |
+| `=REGLA3(a; b; c)` | Regla de tres simple (a·c/b) |
+
+*Conversión*
+| Función | Qué hace |
+|---------|----------|
+| `=CELSIUS_F(°C)` · `=FAHRENHEIT_C(°F)` | Temperatura |
+| `=CV_W(cv)` | Caballos de vapor → watts |
+| `=CONSUMOKML(km; litros)` | Rendimiento km/litro |
+
+*Texto / fecha*
+| Función | Qué hace |
+|---------|----------|
+| `=INICIALES("Juan Pérez")` | Iniciales → JP |
+| `=SOLONUMEROS(texto)` | Deja solo los dígitos |
+| `=TITULAR(texto)` | Mayúscula inicial en cada palabra |
+| `=CONTARPALABRAS(texto)` | Cuenta palabras |
+| `=EDAD(fecha)` · `=TRIMESTRE(fecha)` | Edad en años · trimestre 1-4 |
+
+> **Nota:** también existe `=MANOOBRA(horas; valorHora; [cargas%])`. Para añadir
+> las tuyas, agrega un triplete `[func, "NOMBRE", "descripción"]` al array
+> `calculate` en `registerCustomFunctions()` de `app.js` y ejecuta `deploy.cmd`.
+> El libro **`ejemplos/Ejemplos XlsView.xlsx`** (hoja «Banco de funciones»)
+> muestra las 38 en acción.
 
 **Macros** — botón **⚡ Macro** en la barra. Abre un editor donde escribes
 JavaScript que automatiza la hoja activa. Tienes disponibles: `sheet`,
