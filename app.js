@@ -787,6 +787,19 @@
     return tab;
   }
 
+  // Lee los gráficos de XlsView guardados dentro del ZIP (xl/xlsview-charts.json).
+  function chartsFromWorkbook(wb) {
+    try {
+      const f = wb && wb.files && wb.files["xl/xlsview-charts.json"];
+      if (!f) return null;
+      const txt = typeof f.content === "string"
+        ? f.content
+        : new TextDecoder("utf-8").decode(new Uint8Array(f.content));
+      const arr = JSON.parse(txt);
+      return Array.isArray(arr) ? arr : null;
+    } catch (e) { return null; }
+  }
+
   // ===========================================================================
   //  Carga / apertura de archivos
   // ===========================================================================
@@ -856,6 +869,8 @@
       protection: uniData.__protection || {},
       // Config de página por nombre de hoja (impresión).
       pageConfig: pageConfig,
+      // Gráficos guardados (leídos del archivo si los hubiera).
+      charts: chartsFromWorkbook(wb) || [],
     };
     tabs.push(tab);
     renderTabs();
@@ -965,6 +980,7 @@
         const styled = window.XlsxStyles.apply(out, snap, {
           protection: tab.protection || {},
           page: tab.pageConfig || {},   // config de página por nombre de hoja
+          charts: tab.charts || [],     // gráficos de XlsView (json en el ZIP)
         });
         if (styled && styled.length) out = styled;
       } catch (e) { /* si falla, conservamos el archivo sin estilos ricos */ }
@@ -1136,6 +1152,7 @@
     $("btnPrint").disabled = !has;
     $("btnPageSetup").disabled = !has;
     $("btnMacro").disabled = !has;
+    $("btnChart").disabled = !has;
     $("curName").textContent = has
       ? activeTab.name + (activeTab.dirty ? "  •" : "")
       : "— sin archivo —";
@@ -1522,6 +1539,23 @@
   }
   function closeMacroModal() { $("macroModal").classList.remove("open"); }
 
+  // ===========================================================================
+  //  Gráficos (ECharts, en chart.js)
+  // ===========================================================================
+  function initCharts() {
+    if (!window.XlsxChart) return;
+    window.XlsxChart.init({
+      getApi: () => univerAPI,
+      getActiveTab: () => activeTab,
+      toast: toast,
+      onDirty: () => { if (activeTab) markDirty(activeTab, true); },
+    });
+    $("btnChart").addEventListener("click", () => {
+      if (!activeTab) return;
+      window.XlsxChart.open();      // crea un gráfico desde la selección actual
+    });
+  }
+
   function wireMacros() {
     $("btnMacro").addEventListener("click", openMacroModal);
     $("mcClose").addEventListener("click", closeMacroModal);
@@ -1606,6 +1640,8 @@
         // Cerrar primero los overlays de impresión si están abiertos.
         if ($("printPreview").classList.contains("open")) { window.XlsxPrint.close(); return; }
         if ($("pageModal").classList.contains("open")) { $("pageModal").classList.remove("open"); return; }
+        if ($("chartModal").classList.contains("open")) { $("chartModal").classList.remove("open"); return; }
+        if ($("macroModal").classList.contains("open")) { $("macroModal").classList.remove("open"); return; }
       }
     });
 
@@ -1647,6 +1683,7 @@
     wireDrag();
     wirePrintUI();
     loadMacros();          // siembra las macros de ejemplo la primera vez
+    initCharts();          // motor de gráficos (ECharts)
     setWelcome(true);
     updateToolbar();
 

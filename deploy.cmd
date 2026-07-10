@@ -48,6 +48,7 @@ copy /Y "%ROOT%\index.html"     "%DEST%\" >nul
 copy /Y "%ROOT%\app.js"         "%DEST%\" >nul
 copy /Y "%ROOT%\xlsx-styles.js" "%DEST%\" >nul
 copy /Y "%ROOT%\print.js"       "%DEST%\" >nul
+copy /Y "%ROOT%\chart.js"       "%DEST%\" >nul
 if exist "%DEST%\lib" rmdir /s /q "%DEST%\lib"
 xcopy "%ROOT%\lib" "%DEST%\lib\" /E /I /Y /Q >nul
 

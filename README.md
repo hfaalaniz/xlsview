@@ -149,6 +149,24 @@ La configuración se **lee del archivo original** (`pageSetup`, `pageMargins`,
 `printOptions`, área de impresión y títulos) y se **conserva al guardar**,
 verificado como válido con ExcelJS.
 
+## Gráficos
+
+Motor propio con **ECharts** (open source, sin licencias ni marca de agua — los
+gráficos nativos de Univer son de pago). Botón **📊 Gráfico**: selecciona un
+rango con datos y ábrelo.
+
+- **Tipos:** columnas, barras, líneas, área, torta/dona, columnas apiladas,
+  combinado (columna+línea, doble eje), dispersión (XY), radar, embudo, medidor,
+  mapa de calor y treemap.
+- **Datos:** detecta encabezados (1ª fila) y categorías (1ª columna); múltiples
+  series.
+- **Personalización:** título, 5 paletas, leyenda, etiquetas de datos, líneas
+  suavizadas, barras horizontales, doble eje. Tema oscuro coherente con la app.
+- **Live-update:** el gráfico se refresca al editar los datos del rango.
+- **Exportar:** PNG (2×) o SVG vectorial.
+- **Múltiples gráficos** por hoja: se guardan en el `.xlsx` (como
+  `xl/xlsview-charts.json` dentro del ZIP) y se recuperan al reabrir.
+
 ## Fórmulas, funciones propias y macros
 
 El motor de Univer trae **525 funciones** (las 14 categorías de Excel) con

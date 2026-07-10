@@ -278,6 +278,47 @@
   }
   .modal-foot-spacer { flex: 1 1 auto; }
 
+  /* ---------- Modal de gráficos ---------- */
+  .chart-card { width: 1040px; max-width: 96vw; height: 82vh; }
+  .chart-body { padding: 0; flex: 1 1 auto; overflow: hidden; }
+  .chart-layout { display: grid; grid-template-columns: 240px 1fr 190px; height: 100%; }
+  .chart-controls {
+    border-right: 1px solid var(--border); background: var(--panel2);
+    padding: 12px; overflow-y: auto; display: flex; flex-direction: column; gap: 12px;
+  }
+  .ch-field { display: flex; flex-direction: column; gap: 4px; }
+  .ch-field > label { font-size: 12px; color: var(--text-dim); }
+  .ch-range {
+    font-family: "Cascadia Code", "Consolas", monospace; font-size: 12px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 8px; color: var(--accent);
+  }
+  .ch-opts { border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; margin: 0;
+             display: flex; flex-direction: column; gap: 6px; }
+  .ch-opts legend { padding: 0 6px; color: var(--text-dim); font-size: 11px; }
+  .chart-main { position: relative; background: var(--bg); min-width: 0; }
+  .chart-canvas { position: absolute; inset: 12px; }
+  .chart-saved {
+    border-left: 1px solid var(--border); background: var(--panel2);
+    display: flex; flex-direction: column; min-height: 0;
+  }
+  .chart-saved-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 12px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em;
+    color: var(--text-dim); border-bottom: 1px solid var(--border);
+  }
+  #chList { list-style: none; margin: 0; padding: 6px; overflow-y: auto; flex: 1 1 auto; }
+  #chList li {
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
+    padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text);
+  }
+  #chList li:hover { background: var(--bg); }
+  #chList li.active { background: var(--accent); color: #fff; }
+  #chList li.empty { color: var(--text-dim); font-size: 12px; cursor: default; }
+  #chList .cl-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #chList .cl-del { opacity: 0.6; width: 18px; height: 18px; border-radius: 4px; text-align: center; }
+  #chList .cl-del:hover { background: rgba(255,255,255,0.15); opacity: 1; }
+
   /* ---------- Ventana de vista previa ---------- */
   #printPreview {
     position: fixed; inset: 0; z-index: 210; background: #525659;
@@ -315,6 +356,7 @@
       <button class="tb" id="btnPrint" title="Imprimir / Vista previa (Ctrl+P)" disabled>🖨️ Imprimir</button>
       <button class="tb" id="btnPageSetup" title="Configurar página y márgenes" disabled>⚙️ Página</button>
       <button class="tb" id="btnMacro" title="Macros: automatizar tareas con scripts" disabled>⚡ Macro</button>
+      <button class="tb" id="btnChart" title="Crear gráfico del rango seleccionado" disabled>📊 Gráfico</button>
     </div>
 
     <div class="tb-sep"></div>
@@ -482,6 +524,104 @@
   </div>
 </div>
 
+<!-- ===================== Modal: Gráficos ===================== -->
+<div id="chartModal" class="modal">
+  <div class="modal-card chart-card">
+    <div class="modal-head">
+      <span>📊 Gráficos</span>
+      <button class="modal-x" id="chClose">✕</button>
+    </div>
+    <div class="modal-body chart-body">
+      <div class="chart-layout">
+        <!-- Columna de controles -->
+        <aside class="chart-controls">
+          <div class="ch-field">
+            <label>Nombre</label>
+            <input type="text" id="chName" placeholder="Nombre del gráfico" />
+          </div>
+          <div class="ch-field">
+            <label>Tipo de gráfico</label>
+            <select id="chType">
+              <optgroup label="Básicos">
+                <option value="bar">Columnas</option>
+                <option value="line">Líneas</option>
+                <option value="area">Área</option>
+                <option value="pie">Torta / Dona</option>
+              </optgroup>
+              <optgroup label="Apilados y combinados">
+                <option value="stacked-bar">Columnas apiladas</option>
+                <option value="combo">Combinado (columna + línea)</option>
+              </optgroup>
+              <optgroup label="Avanzados">
+                <option value="scatter">Dispersión (XY)</option>
+                <option value="radar">Radar</option>
+                <option value="funnel">Embudo</option>
+                <option value="gauge">Medidor</option>
+              </optgroup>
+              <optgroup label="Mapas">
+                <option value="heatmap">Mapa de calor</option>
+                <option value="treemap">Treemap</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="ch-field">
+            <label>Título</label>
+            <input type="text" id="chTitle" placeholder="(opcional)" />
+          </div>
+          <div class="ch-field">
+            <label>Paleta</label>
+            <select id="chPalette">
+              <option value="vivid">Vívida</option>
+              <option value="pastel">Pastel</option>
+              <option value="mono">Monocromo azul</option>
+              <option value="warm">Cálida</option>
+              <option value="cool">Fría</option>
+            </select>
+          </div>
+          <div class="ch-field">
+            <label>Rango de datos</label>
+            <div id="chRangeInfo" class="ch-range">(sin rango)</div>
+          </div>
+          <fieldset class="ch-opts">
+            <legend>Datos</legend>
+            <label class="chk"><input type="checkbox" id="chHeader" checked> Primera fila = encabezados</label>
+            <label class="chk"><input type="checkbox" id="chCategory" checked> Primera columna = categorías</label>
+          </fieldset>
+          <fieldset class="ch-opts">
+            <legend>Opciones</legend>
+            <label class="chk"><input type="checkbox" id="chLegend" checked> Mostrar leyenda</label>
+            <label class="chk"><input type="checkbox" id="chLabels"> Etiquetas de datos</label>
+            <label class="chk"><input type="checkbox" id="chSmooth"> Líneas suavizadas</label>
+            <label class="chk"><input type="checkbox" id="chHorizontal"> Barras horizontales</label>
+            <label class="chk"><input type="checkbox" id="chDual"> Doble eje (combinado)</label>
+          </fieldset>
+        </aside>
+
+        <!-- Área del gráfico -->
+        <div class="chart-main">
+          <div id="chartCanvas" class="chart-canvas"></div>
+        </div>
+
+        <!-- Lista de gráficos guardados -->
+        <aside class="chart-saved">
+          <div class="chart-saved-head">
+            <span>Guardados</span>
+            <button class="tb icon-only" id="chNew" title="Nuevo gráfico de la selección">＋</button>
+          </div>
+          <ul id="chList"></ul>
+        </aside>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="tb" id="chExportPng">🖼️ PNG</button>
+      <button class="tb" id="chExportSvg">🖼️ SVG</button>
+      <span class="modal-foot-spacer"></span>
+      <button class="tb" id="chCancel">Cerrar</button>
+      <button class="tb primary" id="chSave">💾 Guardar gráfico</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===================== Vista previa de impresión ===================== -->
 <div id="printPreview">
   <div class="pp-bar">
@@ -510,6 +650,8 @@
 <script src="lib/univer-locale-en-US.js"></script>
 
 <!-- ===================== Lógica de la app ===================== -->
+<script src="lib/echarts.min.js"></script>
 <script src="xlsx-styles.js"></script>
 <script src="print.js"></script>
+<script src="chart.js"></script>
 <script src="app.js"></script>

@@ -1011,6 +1011,15 @@
     // Inyectar el nuevo styles.xml.
     CFB.utils.cfb_add(zip, "/xl/styles.xml", str2buf(stylesXml));
 
+    // Gráficos de XlsView: se guardan como JSON propio dentro del ZIP.
+    // (No es OOXML estándar; lo lee solo XlsView al reabrir.)
+    try {
+      const charts = opts.charts || [];
+      if (charts.length) {
+        CFB.utils.cfb_add(zip, "/xl/xlsview-charts.json", str2buf(JSON.stringify(charts)));
+      }
+    } catch (e) { /* si falla, guardamos el resto igual */ }
+
     try {
       const out = CFB.write(zip, { type: "buffer", fileType: "zip", compression: true });
       return out instanceof Uint8Array ? out : new Uint8Array(out);
