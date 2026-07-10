@@ -1,6 +1,8 @@
 # Build output de .NET
 app/bin/
 app/obj/
+tools/**/bin/
+tools/**/obj/
 
 # WebView2 user data / runtime local
 **/WebView2/

@@ -158,6 +158,65 @@
         });
       }
     } catch (e) { /* la API de eventos puede variar entre versiones */ }
+    // Nota: registerCustomFunctions() se llama al montar el primer workbook
+    // (mountTab), no aquí: Univer necesita un libro activo para conservarlas.
+  }
+
+  let customFnsRegistered = false;
+
+  // ---------------------------------------------------------------------------
+  //  Funciones propias de negocio (registerFunction de la Facade de Univer).
+  //  Se comportan como funciones nativas: se usan en celdas y se recalculan.
+  //  Añade las tuyas aquí siguiendo el mismo patrón [fn, "NOMBRE"].
+  // ---------------------------------------------------------------------------
+  function registerCustomFunctions() {
+    if (customFnsRegistered) return;
+    if (!univerAPI || !univerAPI.registerFunction) return;
+    // Firma de la Facade (Univer 0.5.x): registerFunction({ name, func, description }).
+    // 'func' recibe los argumentos ya evaluados y devuelve el resultado.
+    //
+    // La Facade de Univer 0.5.x espera UN objeto { calculate }, donde calculate
+    // es un array de tripletes [func, "NOMBRE", "descripción abstracta"].
+    // (NO pasamos 'description' como objeto: cuando falta, Univer genera el
+    // descriptor a partir del triplete. Pasarlo como string dispara un fallo del
+    // LocaleService.)  'func' recibe los argumentos ya evaluados (primitivos).
+    const calculate = [
+      [(monto, tasa) => {
+        const m = Number(monto) || 0;
+        const t = (tasa == null || tasa === "") ? 0.21 : Number(tasa);
+        return m * (1 + t);
+      }, "IVA", "Aplica IVA a un monto (21% por defecto): IVA(monto, [tasa])"],
+
+      [(total, tasa) => {
+        const v = Number(total) || 0;
+        const t = (tasa == null || tasa === "") ? 0.21 : Number(tasa);
+        return v / (1 + t);
+      }, "NETO", "Quita el IVA de un total (21% por defecto): NETO(total, [tasa])"],
+
+      [(horas, valorHora, cargas) => {
+        const h = Number(horas) || 0;
+        const vh = Number(valorHora) || 0;
+        const c = (cargas == null || cargas === "") ? 0 : Number(cargas);
+        return h * vh * (1 + c);
+      }, "MANOOBRA", "Costo de mano de obra: MANOOBRA(horas, valorHora, [cargas%])"],
+
+      [(tension, corriente, cosphi) => {
+        const v = Number(tension) || 0;
+        const i = Number(corriente) || 0;
+        const cp = (cosphi == null || cosphi === "") ? 0.85 : Number(cosphi);
+        return Math.sqrt(3) * v * i * cp;
+      }, "POTENCIA3F", "Potencia trifásica en W: POTENCIA3F(V, I, [cosφ])"],
+
+      [(longitud, corriente, seccion, kappa) => {
+        const L = Number(longitud) || 0;
+        const I = Number(corriente) || 0;
+        const S = Number(seccion) || 1;
+        const k = (kappa == null || kappa === "") ? 56 : Number(kappa);
+        return (2 * L * I) / (k * S);
+      }, "CAIDATENSION", "Caída de tensión monofásica (V): CAIDATENSION(L, I, S, [κ])"],
+    ];
+    try { univerAPI.registerFunction({ calculate }); customFnsRegistered = true; }
+    catch (e) { /* si la firma cambia entre versiones, no rompemos el arranque */ }
   }
 
   // ¿La celda (row,col) de esa worksheet está bloqueada por protección de hoja?
@@ -443,12 +502,22 @@
       // Altos de fila. Univer guarda el alto en PÍXELES; OOXML lo espera en
       // PUNTOS (1pt = 4/3 px). SheetJS escribe hpt tal cual, así que convertimos
       // px -> pt para no inflar la altura en cada ciclo guardar/reabrir.
+      //
+      // ALTURA EFECTIVA: Univer muestra la fila con esta fórmula (misma que su
+      // getRowHeight): si ia (isAutoHeight) es null/true y hay ah (auto-height),
+      // usa ah; si no, usa h. El pincel "copiar formato" recalcula ah pero deja
+      // h intacto; guardar solo h perdía la altura que se veía en pantalla.
+      // Aquí NO recalculamos nada: leemos la altura que Univer YA está mostrando.
       const rows = [];
       const rd = sh.rowData || {};
       Object.keys(rd).forEach((rk) => {
         const r = +rk;
-        if (rd[rk] && rd[rk].h) rows[r] = { hpt: Math.round((rd[rk].h * 3 / 4) * 100) / 100 };
-        if (rd[rk] && rd[rk].hd) rows[r] = Object.assign(rows[r] || {}, { hidden: true });
+        const row = rd[rk];
+        if (!row) return;
+        const useAuto = (row.ia == null || row.ia === 1) && typeof row.ah === "number";
+        const px = useAuto ? row.ah : row.h;
+        if (px) rows[r] = { hpt: Math.round((px * 3 / 4) * 100) / 100 };
+        if (row.hd) rows[r] = Object.assign(rows[r] || {}, { hidden: true });
       });
       if (rows.length) ws["!rows"] = rows;
 
@@ -491,6 +560,62 @@
     if (uc.s && uc.s.n && uc.s.n.pattern) { cell.z = uc.s.n.pattern; has = true; }
 
     return has ? cell : null;
+  }
+
+  // ===========================================================================
+  //  Libro nuevo en blanco
+  // ===========================================================================
+  let blankCounter = 0;
+
+  // Construye el snapshot de un libro vacío (una hoja "Hoja1").
+  function blankWorkbookData(name) {
+    const sheetId = "sheet-0";
+    return {
+      id: "wb-" + Date.now() + "-" + Math.floor(Math.random() * 1e6),
+      name: name || "Libro",
+      appVersion: "xlsview",
+      locale: LocaleType.EN_US,
+      sheetOrder: [sheetId],
+      sheets: {
+        [sheetId]: {
+          id: sheetId,
+          name: "Hoja1",
+          rowCount: 100,
+          columnCount: 26,
+          cellData: {},
+          columnData: {},
+          rowData: {},
+          mergeData: [],
+          defaultColumnWidth: 88,
+          defaultRowHeight: 22,
+        },
+      },
+      __protection: {},
+    };
+  }
+
+  // Crea un libro nuevo en blanco en una pestaña propia y la activa.
+  function newBlankWorkbook() {
+    blankCounter += 1;
+    const name = "Libro " + blankCounter + ".xlsx";
+    const uniData = blankWorkbookData(name);
+    const tab = {
+      id: "tab-" + Date.now() + "-" + Math.floor(Math.random() * 1e6),
+      name,
+      token: null,                 // sin archivo en disco: al guardar irá a "Guardar como"
+      unitId: null,
+      snapshot: uniData,
+      dirty: false,
+      protection: {},
+      pageConfig: normalizePageConfig(null, ["Hoja1"]),
+      isNew: true,                 // marca de libro sin guardar aún
+    };
+    tabs.push(tab);
+    renderTabs();
+    activateTab(tab);
+    setWelcome(false);
+    updateToolbar();
+    return tab;
   }
 
   // ===========================================================================
@@ -576,6 +701,9 @@
     suppressDirty = true;
     const wbApi = univerAPI.createWorkbook(t.snapshot);
     t.unitId = (wbApi && wbApi.getId) ? wbApi.getId() : t.snapshot.id;
+    // Las funciones propias deben registrarse con un workbook ya existente
+    // (si se registran en el arranque, sin libro, se pierden). Idempotente.
+    registerCustomFunctions();
     // Reactivar el seguimiento de cambios tras asentar el render.
     setTimeout(() => { suppressDirty = false; }, 500);
   }
@@ -614,47 +742,11 @@
     else if (wb && wb.getSnapshot) snap = wb.getSnapshot();
     if (!snap) throw new Error("No se pudo obtener el contenido de la hoja.");
     resolveSnapshotStyles(snap);
-    applyRenderHeights(snap, wb);
+    // NO se recalculan ni comparan alturas: el snapshot de Univer YA contiene lo
+    // que el usuario modificó (datos, estilos, alturas, anchos). Se guarda tal
+    // cual — si la altura es X, se persiste X y se recupera X. Cualquier lógica
+    // de "altura efectiva/render" quedó eliminada a pedido explícito del usuario.
     return snap;
-  }
-
-  // Univer aplica auto-height (p. ej. al copiar formato) que NO se refleja en la
-  // altura almacenada del snapshot, solo en el render. Para que lo que el usuario
-  // VE persista al guardar, leemos la altura efectiva de render de cada fila con
-  // getRowHeight() del worksheet interno y la escribimos en rowData.
-  function applyRenderHeights(snap, wb) {
-    try {
-      if (!wb) return;
-      const order = snap.sheetOrder || Object.keys(snap.sheets || {});
-      order.forEach((sid) => {
-        const sheet = snap.sheets[sid];
-        if (!sheet) return;
-        // Obtener el FWorksheet correspondiente y su worksheet interno.
-        let fws = null;
-        try { fws = wb.getSheetBySheetId ? wb.getSheetBySheetId(sid) : null; } catch (e) {}
-        if (!fws) { try { fws = wb.getActiveSheet && wb.getActiveSheet(); } catch (e) {} }
-        if (!fws || !fws.getSheet) return;
-        const ws = fws.getSheet();
-        if (!ws || typeof ws.getRowHeight !== "function") return;
-
-        // Rango de filas a considerar: las que ya tienen dato/estilo/altura.
-        const rowData = sheet.rowData || (sheet.rowData = {});
-        let maxR = sheet.rowCount || 0;
-        for (const rk in (sheet.cellData || {})) maxR = Math.max(maxR, +rk + 1);
-        for (const rk in rowData) maxR = Math.max(maxR, +rk + 1);
-
-        for (let r = 0; r < maxR; r++) {
-          let h;
-          try { h = ws.getRowHeight(r); } catch (e) { continue; }
-          if (!h || h <= 0) continue;
-          const existing = rowData[r];
-          // Actualizar solo si difiere de lo almacenado (evita ruido).
-          if (!existing || Math.abs((existing.h || 0) - h) > 0.5) {
-            rowData[r] = Object.assign({}, existing, { h: h });
-          }
-        }
-      });
-    } catch (e) { /* si falla, se guardan las alturas del snapshot tal cual */ }
   }
 
   // Univer guarda los estilos editados en una TABLA (snap.styles) y deja en la
@@ -874,6 +966,7 @@
     $("btnZoomOut").disabled = !has;
     $("btnPrint").disabled = !has;
     $("btnPageSetup").disabled = !has;
+    $("btnMacro").disabled = !has;
     $("curName").textContent = has
       ? activeTab.name + (activeTab.dirty ? "  •" : "")
       : "— sin archivo —";
@@ -1078,13 +1171,213 @@
   // ===========================================================================
   //  Wiring de botones y teclado
   // ===========================================================================
+  //  Macros — scripts JavaScript del usuario que automatizan tareas sobre la
+  //  hoja activa mediante la Facade de Univer. Se guardan en localStorage.
+  // ===========================================================================
+  const MACRO_STORE = "xlsview.macros";
+  let macros = [];            // { name, code }
+  let macroSel = -1;          // índice seleccionado
+
+  const MACRO_EXAMPLES = {
+    numerar:
+      "// Numera la primera columna a partir de la fila seleccionada.\n" +
+      "// Ajusta 'desde' y cuántas filas quieres numerar.\n" +
+      "const desde = 8;      // fila 9 (0-based)\n" +
+      "const cuantas = 12;\n" +
+      "for (let i = 0; i < cuantas; i++) {\n" +
+      "  cell(desde + i, 0).setValue(i + 1);\n" +
+      "}\n" +
+      "toast('Numeradas ' + cuantas + ' filas');",
+    totales:
+      "// Suma cada columna numérica de un rango y escribe una fila de totales.\n" +
+      "const filaIni = 8, filaFin = 20;        // filas de datos (0-based)\n" +
+      "const colIni = 3, colFin = 6;           // columnas D..G\n" +
+      "const filaTotal = filaFin + 1;\n" +
+      "for (let c = colIni; c <= colFin; c++) {\n" +
+      "  const letra = String.fromCharCode(65 + c);\n" +
+      "  cell(filaTotal, c).setValue('=SUM(' + letra + (filaIni+1) + ':' + letra + (filaFin+1) + ')');\n" +
+      "}\n" +
+      "cell(filaTotal, colIni - 1).setValue('TOTAL');\n" +
+      "toast('Fila de totales agregada');",
+    limpiar:
+      "// Quita el formato (mantiene los valores) del rango seleccionado.\n" +
+      "const sel = sheet.getActiveRange ? sheet.getActiveRange() : null;\n" +
+      "if (sel && sel.setFontWeight) {\n" +
+      "  sel.setFontWeight('normal').setFontStyle('normal');\n" +
+      "  if (sel.setBackground) sel.setBackground(null);\n" +
+      "  toast('Formato limpiado');\n" +
+      "} else {\n" +
+      "  toast('Selecciona un rango primero');\n" +
+      "}",
+    resaltar:
+      "// Pinta de rojo el texto de las celdas con números negativos\n" +
+      "// dentro del rango de datos.\n" +
+      "const f0 = 8, f1 = 30, c0 = 3, c1 = 7;\n" +
+      "for (let r = f0; r <= f1; r++) {\n" +
+      "  for (let c = c0; c <= c1; c++) {\n" +
+      "    const v = cell(r, c).getValue();\n" +
+      "    if (typeof v === 'number' && v < 0) cell(r, c).setFontColor('#c0392b');\n" +
+      "  }\n" +
+      "}\n" +
+      "toast('Negativos resaltados');",
+  };
+
+  function loadMacros() {
+    try { macros = JSON.parse(localStorage.getItem(MACRO_STORE) || "[]"); }
+    catch (e) { macros = []; }
+    if (!Array.isArray(macros)) macros = [];
+  }
+  function saveMacros() {
+    try { localStorage.setItem(MACRO_STORE, JSON.stringify(macros)); } catch (e) {}
+  }
+
+  function renderMacroList() {
+    const ul = $("mcList");
+    ul.innerHTML = "";
+    if (!macros.length) {
+      const li = document.createElement("li");
+      li.className = "empty";
+      li.textContent = "Sin macros. Crea una con ＋ o parte de un ejemplo.";
+      ul.appendChild(li);
+      return;
+    }
+    macros.forEach((m, i) => {
+      const li = document.createElement("li");
+      li.className = i === macroSel ? "active" : "";
+      li.textContent = "⚡ " + (m.name || "(sin nombre)");
+      li.title = m.name;
+      li.addEventListener("click", () => selectMacro(i));
+      ul.appendChild(li);
+    });
+  }
+
+  function selectMacro(i) {
+    macroSel = i;
+    const m = macros[i];
+    if (m) { $("mcName").value = m.name || ""; $("mcCode").value = m.code || ""; }
+    renderMacroList();
+  }
+
+  function newMacro() {
+    macroSel = -1;
+    $("mcName").value = "";
+    $("mcCode").value = "";
+    renderMacroList();
+    $("mcName").focus();
+  }
+
+  function saveCurrentMacro() {
+    const name = $("mcName").value.trim();
+    const code = $("mcCode").value;
+    if (!name) { toast("Ponle un nombre a la macro", "err"); return; }
+    const existing = macros.findIndex((m) => m.name === name);
+    if (macroSel >= 0 && macros[macroSel]) {
+      macros[macroSel] = { name, code };
+    } else if (existing >= 0) {
+      macros[existing] = { name, code };
+      macroSel = existing;
+    } else {
+      macros.push({ name, code });
+      macroSel = macros.length - 1;
+    }
+    saveMacros();
+    renderMacroList();
+    toast("Macro guardada ✓", "ok");
+  }
+
+  function deleteCurrentMacro() {
+    if (macroSel < 0 || !macros[macroSel]) { toast("No hay macro seleccionada"); return; }
+    if (!confirm('¿Eliminar la macro "' + macros[macroSel].name + '"?')) return;
+    macros.splice(macroSel, 1);
+    saveMacros();
+    newMacro();
+    toast("Macro eliminada", "ok");
+  }
+
+  // Ejecuta el código de la macro con una API acotada sobre la hoja activa.
+  function runMacroCode(code) {
+    if (!activeTab || !univerAPI) { toast("Abre una hoja primero", "err"); return; }
+    const workbook = univerAPI.getActiveWorkbook && univerAPI.getActiveWorkbook();
+    const sheet = workbook && workbook.getActiveSheet && workbook.getActiveSheet();
+    if (!sheet) { toast("No hay hoja activa", "err"); return; }
+
+    // Helpers: cell(f,c) y range(f,c,nf,nc) devuelven FRange de Univer.
+    const cell = (f, c) => sheet.getRange(f, c);
+    const range = (f, c, nf, nc) => sheet.getRange(f, c, nf || 1, nc || 1);
+    // Dimensiones de datos (para bucles)
+    let rows = 0, cols = 0;
+    try {
+      const snap = currentSnapshot(activeTab);
+      const sh = snap.sheets[(snap.sheetOrder || [])[0]];
+      rows = sh ? sh.rowCount : 0; cols = sh ? sh.columnCount : 0;
+    } catch (e) {}
+
+    suppressDirty = false;
+    try {
+      // eslint-disable-next-line no-new-func
+      const fn = new Function(
+        "sheet", "cell", "range", "rows", "cols", "api", "workbook", "toast",
+        '"use strict";\n' + code
+      );
+      fn(sheet, cell, range, rows, cols, univerAPI, workbook, (m) => toast(String(m), "ok"));
+      if (activeTab) markDirty(activeTab, true);
+      toast("Macro ejecutada ✓", "ok");
+    } catch (e) {
+      toast("Error en la macro: " + e.message, "err");
+      // También lo dejamos en consola para depurar.
+      try { console.error("[macro]", e); } catch (_) {}
+    }
+  }
+
+  function openMacroModal() {
+    if (!activeTab) return;
+    loadMacros();
+    renderMacroList();
+    if (macros.length && macroSel < 0) selectMacro(0);
+    else if (!macros.length) newMacro();
+    $("macroModal").classList.add("open");
+  }
+  function closeMacroModal() { $("macroModal").classList.remove("open"); }
+
+  function wireMacros() {
+    $("btnMacro").addEventListener("click", openMacroModal);
+    $("mcClose").addEventListener("click", closeMacroModal);
+    $("mcCancel").addEventListener("click", closeMacroModal);
+    $("mcNew").addEventListener("click", newMacro);
+    $("mcSave").addEventListener("click", saveCurrentMacro);
+    $("mcDelete").addEventListener("click", deleteCurrentMacro);
+    $("mcRun").addEventListener("click", () => runMacroCode($("mcCode").value));
+    document.querySelectorAll(".macro-ex").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const ex = MACRO_EXAMPLES[btn.dataset.ex];
+        if (ex == null) return;
+        macroSel = -1;
+        if (!$("mcName").value.trim()) $("mcName").value = btn.textContent.trim();
+        $("mcCode").value = ex;
+        renderMacroList();
+      });
+    });
+    // Tab inserta dos espacios en el editor en vez de saltar de foco.
+    $("mcCode").addEventListener("keydown", (e) => {
+      if (e.key === "Tab") {
+        e.preventDefault();
+        const ta = e.target, s = ta.selectionStart, en = ta.selectionEnd;
+        ta.value = ta.value.slice(0, s) + "  " + ta.value.slice(en);
+        ta.selectionStart = ta.selectionEnd = s + 2;
+      }
+    });
+  }
+
+  // ===========================================================================
   function wireUI() {
+    $("btnNew").addEventListener("click", () => newBlankWorkbook());
     $("btnOpen").addEventListener("click", pickFile);
     $("btnOpenWelcome").addEventListener("click", pickFile);
     $("btnSave").addEventListener("click", saveActive);
     $("btnSaveAs").addEventListener("click", saveActiveAs);
     $("btnZoomIn").addEventListener("click", () => zoom(0.1));
     $("btnZoomOut").addEventListener("click", () => zoom(-0.1));
+    wireMacros();
     $("btnMin").addEventListener("click", () => { if (!postToHost("minimize")) toast("Minimizar solo en la app"); });
     $("btnFull").addEventListener("click", () => postToHost("fullscreen"));
     $("btnClose").addEventListener("click", () => { if (!postToHost("close")) window.close(); });
@@ -1118,6 +1411,8 @@
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         if (e.shiftKey) saveActiveAs(); else saveActive();
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "n") {
+        e.preventDefault(); newBlankWorkbook();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
         e.preventDefault(); pickFile();
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "w") {
@@ -1187,7 +1482,8 @@
       const token = file.replace(/^\/xls\//, "");
       openFromToken(token).then(signalRendered);
     } else {
-      // Sin archivo: avisar al host enseguida (cierra splash si lo hubiera).
+      // Sin archivo: arrancar con un libro nuevo en blanco (no pantalla vacía).
+      newBlankWorkbook();
       setTimeout(signalRendered, 300);
     }
 

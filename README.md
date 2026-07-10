@@ -149,6 +149,35 @@ La configuración se **lee del archivo original** (`pageSetup`, `pageMargins`,
 `printOptions`, área de impresión y títulos) y se **conserva al guardar**,
 verificado como válido con ExcelJS.
 
+## Fórmulas, funciones propias y macros
+
+El motor de Univer trae **525 funciones** (las 14 categorías de Excel) con
+anidamiento, `IF/IFS/SWITCH`, `LAMBDA/LET`, `VLOOKUP/XLOOKUP/INDEX/MATCH`,
+referencias entre hojas y literales de matriz. Único límite: los arrays con
+**derrame (spill)** (`SEQUENCE`, `FILTER`, `SORT`, `UNIQUE`) no se materializan
+en varias celdas con el preset actual.
+
+**Funciones propias de negocio** (ya incluidas, definidas en `app.js` con
+`univerAPI.registerFunction`, se usan como nativas):
+
+| Función | Qué hace |
+|---------|----------|
+| `=IVA(monto; [tasa])` | Aplica IVA (21% por defecto) |
+| `=NETO(total; [tasa])` | Quita el IVA de un total |
+| `=MANOOBRA(horas; valorHora; [cargas%])` | Costo de mano de obra |
+| `=POTENCIA3F(V; I; [cosφ])` | Potencia trifásica en W (√3·V·I·cosφ) |
+| `=CAIDATENSION(L; I; S; [κ])` | Caída de tensión monofásica en V |
+
+Para añadir las tuyas, agrega un triplete `[func, "NOMBRE", "descripción"]` al
+array `calculate` en `registerCustomFunctions()` de `app.js`.
+
+**Macros** — botón **⚡ Macro** en la barra. Abre un editor donde escribes
+JavaScript que automatiza la hoja activa. Tienes disponibles: `sheet`,
+`cell(fila, col)`, `range(f, c, nf, nc)`, `rows`, `cols`, `api`, `workbook` y
+`toast(mensaje)`. Las macros se guardan por navegador y hay 4 ejemplos listos
+(numerar filas, fila de totales, limpiar formato, resaltar negativos). No es
+VBA: es scripting sobre la API de Univer.
+
 ## Modo de depuración (opcional)
 
 Define `XLSVIEW_DEBUG_PORT` para exponer la ventana a Chrome DevTools:
