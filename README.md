@@ -219,6 +219,16 @@ usables como nativas. Se anidan con las de Univer (`=ROUND(IVA(1000),0)`).
 | `=CONTARPALABRAS(texto)` | Cuenta palabras |
 | `=EDAD(fecha)` · `=TRIMESTRE(fecha)` | Edad en años · trimestre 1-4 |
 
+*Web / XML* (completan el hueco del preset de Univer)
+| Función | Qué hace |
+|---------|----------|
+| `=FILTERXML(xml; xpath)` | Extrae datos de un XML con una expresión XPath (local, sin red) |
+| `=WEBSERVICE(url)` | Trae el texto de una URL. La petición la hace el host C# (acceso a internet); muestra «Cargando…» y refresca al llegar la respuesta |
+
+> **Ingeniería, estadística, financieras…** ya vienen **nativas** en Univer (525
+> funciones): `BIN2DEC`, `BITAND`, `COMPLEX`, `IMSUM`, `BESSELJ`, `ERF`,
+> `CONVERT`, `DELTA`, `GESTEP`, etc. Se invocan por su **nombre en inglés**.
+>
 > **Nota:** también existe `=MANOOBRA(horas; valorHora; [cargas%])`. Para añadir
 > las tuyas, agrega un triplete `[func, "NOMBRE", "descripción"]` al array
 > `calculate` en `registerCustomFunctions()` de `app.js` y ejecuta `deploy.cmd`.

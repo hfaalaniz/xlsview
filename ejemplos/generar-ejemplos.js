@@ -343,6 +343,11 @@ exampleSheet('Banco de funciones', 'FF9E480E',
     { section: 'Fecha' },
     ['EDAD — años desde una fecha', '=EDAD(DATE(1990,6,15))', 'EDAD(DATE(1990,6,15))'],
     ['TRIMESTRE — 1..4 de una fecha', '=TRIMESTRE(DATE(2026,8,1))', 'TRIMESTRE(DATE(2026,8,1))'],
+    { section: 'Web / XML' },
+    ['ENCODEURL — codifica una URL', '=ENCODEURL("a b&c")', 'ENCODEURL("a b&c")'],
+    ['FILTERXML — XPath sobre XML', '=FILTERXML("<r><i>7</i></r>","//i")', 'FILTERXML("<r><i>7</i></r>","//i")'],
+    // WEBSERVICE se documenta como texto: haría una petición de red al abrir.
+    ['WEBSERVICE — texto de una URL', '=WEBSERVICE("https://api.github.com/zen")', null],
   ]);
 
 // =====================================================================
@@ -413,6 +418,8 @@ exampleSheet('Banco de funciones', 'FF9E480E',
     ['SORT(rango)', '#SPILL!', 'Ordenar los datos manualmente en la hoja (menú de datos)'],
     ['UNIQUE(rango)', '#SPILL!', 'Quitar duplicados a mano, o COUNTIF para marcar repetidos'],
     ['MAP(...) sola', '#SPILL!', 'Envolver en SUM/MAX: SÍ funciona =SUM(MAP(...))'],
+    ['CUBEMEMBER, CUBEVALUE…', '#NAME? (sin OLAP)', 'Las 7 funciones de cubo necesitan un servidor OLAP; no aplican sin backend'],
+    ['Funciones async (Promise)', '#SPILL!', 'El motor no admite async; para red usar WEBSERVICE (caché síncrona del host)'],
   ];
   lim.forEach(([f, res, alt], i) => {
     ws.getCell(r,2).value = f; ws.getCell(r,2).font={name:'Consolas',size:10,bold:true};

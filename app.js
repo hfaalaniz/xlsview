@@ -165,9 +165,76 @@
   let customFnsRegistered = false;
 
   // ---------------------------------------------------------------------------
-  //  Funciones propias de negocio (registerFunction de la Facade de Univer).
+  //  WEBSERVICE — caché síncrona de descargas (el motor no admite async).
+  //   estado: "loading" | "ok" | "error"
+  // ---------------------------------------------------------------------------
+  const wsCache = new Map();   // url -> { state, value }
+  let wsRecalcPending = false;
+
+  function webserviceSync(url) {
+    if (!url) return "#N/A";
+    if (!inHostApp) return "#N/A";        // sin host no hay acceso a red
+    const hit = wsCache.get(url);
+    if (hit) {
+      if (hit.state === "ok") return hit.value;
+      if (hit.state === "error") return "#VALUE!";
+      return "Cargando…";                 // "loading": aún en curso
+    }
+    // Primera vez: marcar en curso y disparar la descarga en segundo plano.
+    wsCache.set(url, { state: "loading", value: "" });
+    fetch("/fetch?url=" + encodeURIComponent(url), { cache: "no-store" })
+      .then((r) => r.ok ? r.json() : { ok: false })
+      .then((j) => {
+        if (j && j.ok) wsCache.set(url, { state: "ok", value: String(j.body) });
+        else wsCache.set(url, { state: "error", value: "" });
+        scheduleWebserviceRecalc();
+      })
+      .catch(() => { wsCache.set(url, { state: "error", value: "" }); scheduleWebserviceRecalc(); });
+    return "Cargando…";
+  }
+
+  // Cuando llega una respuesta, refrescamos las celdas con WEBSERVICE. Univer
+  // cachea el resultado de una función "pura", así que no la re-evalúa solo
+  // porque cambió nuestro caché: hay que reescribir la fórmula de cada celda que
+  // use WEBSERVICE para forzar su re-evaluación (ya con el valor en caché).
+  function scheduleWebserviceRecalc() {
+    if (wsRecalcPending) return;
+    wsRecalcPending = true;
+    setTimeout(() => {
+      wsRecalcPending = false;
+      try {
+        const wb = univerAPI.getActiveWorkbook && univerAPI.getActiveWorkbook();
+        if (!wb) return;
+        const snap = wb.save ? wb.save() : null;
+        if (!snap) return;
+        const order = snap.sheetOrder || Object.keys(snap.sheets || {});
+        suppressDirty = true;
+        order.forEach((sid) => {
+          const sh = snap.sheets[sid];
+          if (!sh || !sh.cellData) return;
+          const uni = univerAPI.getUniverSheet ? univerAPI.getUniverSheet(sid) : null;
+          const sheetApi = wb.getSheetBySheetId ? wb.getSheetBySheetId(sid) : null;
+          Object.keys(sh.cellData).forEach((rk) => {
+            const row = sh.cellData[rk];
+            Object.keys(row).forEach((ck) => {
+              const cell = row[ck];
+              const f = cell && cell.f;
+              if (f && /WEBSERVICE\s*\(/i.test(f) && sheetApi) {
+                // reescribir la misma fórmula -> Univer la re-evalúa
+                try { sheetApi.getRange(+rk, +ck).setValue(f); } catch (e) {}
+              }
+            });
+          });
+        });
+        setTimeout(() => { suppressDirty = false; }, 200);
+      } catch (e) { /* si falla, editar la celda manualmente recalcula */ }
+    }, 80);
+  }
+
+  // ---------------------------------------------------------------------------
+  //  Banco de funciones propias (registerFunction de la Facade de Univer).
   //  Se comportan como funciones nativas: se usan en celdas y se recalculan.
-  //  Añade las tuyas aquí siguiendo el mismo patrón [fn, "NOMBRE"].
+  //  Añade las tuyas al array 'calculate' como [fn, "NOMBRE", "descripción"].
   // ---------------------------------------------------------------------------
   function registerCustomFunctions() {
     if (customFnsRegistered) return;
@@ -292,6 +359,30 @@
         const d = new Date((serial - 25569) * 86400000);
         return Math.floor(d.getUTCMonth() / 3) + 1;
       }, "TRIMESTRE", "Trimestre (1-4) de una fecha: TRIMESTRE(fecha)"],
+
+      // ===================== WEB / XML =====================
+      // FILTERXML: aplica un XPath a un texto XML y devuelve el primer nodo
+      // coincidente (local, sin red). Univer trae el nombre pero no el cálculo.
+      [(xml, xpath) => {
+        try {
+          const doc = new DOMParser().parseFromString(String(xml), "text/xml");
+          if (doc.getElementsByTagName("parsererror").length) return "#VALUE!";
+          const res = doc.evaluate(String(xpath), doc, null,
+            XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+          const node = res.singleNodeValue;
+          if (!node) return "#N/A";
+          return node.textContent != null ? node.textContent : String(node.nodeValue || "");
+        } catch (e) { return "#VALUE!"; }
+      }, "FILTERXML", "Extrae datos de un XML con XPath: FILTERXML(xml, xpath)"],
+
+      // WEBSERVICE: trae el texto de una URL a través del host C# (ruta /fetch,
+      // que sí tiene acceso a internet). El motor de Univer NO soporta funciones
+      // asíncronas (una Promise se interpreta como matriz y da #SPILL!), así que
+      // usamos un patrón de CACHÉ SÍNCRONA: la función devuelve el valor cacheado;
+      // si aún no está, dispara la descarga en segundo plano y devuelve "cargando…";
+      // al llegar la respuesta, forzamos un recálculo para que la celda se refresque.
+      [(url) => webserviceSync(String(url == null ? "" : url)), "WEBSERVICE",
+        "Devuelve el texto de una URL: WEBSERVICE(url)"],
     ];
     try { univerAPI.registerFunction({ calculate }); customFnsRegistered = true; }
     catch (e) { /* si la firma cambia entre versiones, no rompemos el arranque */ }

@@ -16,6 +16,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -195,6 +196,14 @@ namespace XlsView
                     return;
                 }
 
+                // ---- GET /fetch?url=... ---- (para WEBSERVICE: trae texto de una URL)
+                if (path.Equals("/fetch", StringComparison.OrdinalIgnoreCase))
+                {
+                    string url = ctx.Request.QueryString["url"] ?? "";
+                    WriteJson(ctx, FetchUrl(url));
+                    return;
+                }
+
                 // ---- GET /xls/<token> ----
                 if (path.StartsWith("/xls/", StringComparison.OrdinalIgnoreCase))
                 {
@@ -331,7 +340,46 @@ namespace XlsView
 
         private static string JsonEsc(string s)
         {
-            return (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"");
+            return (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"")
+                .Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t");
+        }
+
+        // --------------------------------------------------------------
+        //  /fetch — trae el texto de una URL (para la función WEBSERVICE).
+        //  Solo http/https, timeout corto y tamaño acotado.
+        // --------------------------------------------------------------
+        private static readonly HttpClient _http = new HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(15)
+        };
+
+        private static string FetchUrl(string url)
+        {
+            try
+            {
+                Uri uri;
+                if (!Uri.TryCreate(url, UriKind.Absolute, out uri) ||
+                    (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+                    return "{\"ok\":false,\"error\":\"URL inválida\"}";
+
+                using (var req = new HttpRequestMessage(HttpMethod.Get, uri))
+                {
+                    req.Headers.TryAddWithoutValidation("User-Agent", "XlsView/1.0");
+                    var resp = _http.SendAsync(req).GetAwaiter().GetResult();
+                    if (!resp.IsSuccessStatusCode)
+                        return "{\"ok\":false,\"error\":\"HTTP " + (int)resp.StatusCode + "\"}";
+
+                    byte[] bytes = resp.Content.ReadAsByteArrayAsync().GetAwaiter().GetResult();
+                    // Límite de 256 KB para no volcar respuestas enormes en una celda.
+                    if (bytes.Length > 256 * 1024) Array.Resize(ref bytes, 256 * 1024);
+                    string body = Encoding.UTF8.GetString(bytes);
+                    return "{\"ok\":true,\"body\":\"" + JsonEsc(body) + "\"}";
+                }
+            }
+            catch (Exception ex)
+            {
+                return "{\"ok\":false,\"error\":\"" + JsonEsc(ex.Message) + "\"}";
+            }
         }
     }
 }
