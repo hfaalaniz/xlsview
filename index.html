@@ -7,6 +7,14 @@
 <!-- Estilos de Univer (local) -->
 <link rel="stylesheet" href="lib/univer-preset-sheets-core.css" />
 <link rel="stylesheet" href="lib/univer-sheets-data-validation-ui.css" />
+<!-- Estilos de los presets OSS adicionales -->
+<link rel="stylesheet" href="lib/univer-thread-comment-ui.css" />
+<link rel="stylesheet" href="lib/univer-sheets-thread-comment-ui.css" />
+<link rel="stylesheet" href="lib/univer-sheets-filter-ui.css" />
+<link rel="stylesheet" href="lib/univer-sheets-sort-ui.css" />
+<link rel="stylesheet" href="lib/univer-find-replace.css" />
+<link rel="stylesheet" href="lib/univer-sheets-conditional-formatting-ui.css" />
+<link rel="stylesheet" href="lib/univer-sheets-hyper-link-ui.css" />
 
 <style>
   :root {
@@ -848,6 +856,31 @@
 <script src="lib/univer-sheets-data-validation.js"></script>
 <script src="lib/univer-sheets-data-validation-ui.js"></script>
 <script src="lib/univer-sheets-data-validation-facade.js"></script>
+
+<!-- ===== Presets OSS adicionales (cargados en orden de dependencia) ===== -->
+<!-- NOTA: el grupo "drawing" (imágenes) NO se agrega: el preset core 0.5.5 ya
+     incluye internamente drawing-manager.service; re-registrarlo provoca
+     [redi] Identifier "univer.drawing-manager.service" already exists. -->
+<!-- Comentarios / hilos (thread-comment) -->
+<script src="lib/univer-thread-comment.js"></script>
+<script src="lib/univer-thread-comment-ui.js"></script>
+<script src="lib/univer-sheets-thread-comment.js"></script>
+<script src="lib/univer-sheets-thread-comment-ui.js"></script>
+<!-- Filtros -->
+<script src="lib/univer-sheets-filter.js"></script>
+<script src="lib/univer-sheets-filter-ui.js"></script>
+<!-- Ordenar -->
+<script src="lib/univer-sheets-sort.js"></script>
+<script src="lib/univer-sheets-sort-ui.js"></script>
+<!-- Buscar y reemplazar -->
+<script src="lib/univer-find-replace.js"></script>
+<script src="lib/univer-sheets-find-replace.js"></script>
+<!-- Formato condicional -->
+<script src="lib/univer-sheets-conditional-formatting.js"></script>
+<script src="lib/univer-sheets-conditional-formatting-ui.js"></script>
+<!-- Hipervínculos -->
+<script src="lib/univer-sheets-hyper-link.js"></script>
+<script src="lib/univer-sheets-hyper-link-ui.js"></script>
 <script>
   // El locale del preset compone varios sub-locales; UniverDesignEnUS no viene
   // en los bundles UMD, así que lo definimos vacío para que merge() no falle.
@@ -855,6 +888,13 @@
 </script>
 <script src="lib/univer-locale-en-US.js"></script>
 <script src="lib/univer-dv-locale-en-US.js"></script>
+<!-- Locales en-US de los presets OSS adicionales -->
+<script src="lib/univer-preset-sheets-thread-comment-en-US.js"></script>
+<script src="lib/univer-preset-sheets-filter-en-US.js"></script>
+<script src="lib/univer-preset-sheets-sort-en-US.js"></script>
+<script src="lib/univer-preset-sheets-find-replace-en-US.js"></script>
+<script src="lib/univer-preset-sheets-conditional-formatting-en-US.js"></script>
+<script src="lib/univer-preset-sheets-hyper-link-en-US.js"></script>
 
 <!-- ===================== Lógica de la app ===================== -->
 <script src="lib/echarts.min.js"></script>

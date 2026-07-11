@@ -208,28 +208,90 @@
   // ---------------------------------------------------------------------------
   //  Inicialización de Univer
   // ---------------------------------------------------------------------------
+  // Fusión profunda de objetos de locale (Univer usa objetos anidados).
+  // No hay mergeLocales en los bundles UMD 0.5.x, así que lo hacemos a mano.
+  function deepMergeLocale(target, source) {
+    if (!source || typeof source !== "object") return target;
+    for (const k of Object.keys(source)) {
+      const sv = source[k];
+      if (sv && typeof sv === "object" && !Array.isArray(sv)) {
+        if (!target[k] || typeof target[k] !== "object") target[k] = {};
+        deepMergeLocale(target[k], sv);
+      } else {
+        target[k] = sv;
+      }
+    }
+    return target;
+  }
+
   function initUniver() {
-    // Plugins de validación de datos (listas, casillas, número, fecha…).
-    // Son open source; se registran tras el preset core que trae sus dependencias.
-    const dvPlugins = [];
-    try {
-      const DV = window.UniverDataValidation;
-      const SDV = window.UniverSheetsDataValidation;
-      const SDVUI = window.UniverSheetsDataValidationUi;
-      if (DV && DV.UniverDataValidationPlugin) dvPlugins.push(DV.UniverDataValidationPlugin);
-      if (SDV && SDV.UniverSheetsDataValidationPlugin) dvPlugins.push(SDV.UniverSheetsDataValidationPlugin);
-      if (SDVUI && SDVUI.UniverSheetsDataValidationUIPlugin) dvPlugins.push(SDVUI.UniverSheetsDataValidationUIPlugin);
-    } catch (e) { /* si no cargaron, seguimos sin validación */ }
+    // ------------------------------------------------------------------
+    //  Plugins OSS adicionales (todos open source, sin licencia).
+    //  Cada entrada: [globalUMD, nombrePlugin]. Se registran en orden de
+    //  dependencia, tras el preset core que trae sus dependencias base.
+    //  Si algún bundle no cargó, se omite sin romper la app.
+    // ------------------------------------------------------------------
+    const pluginSpecs = [
+      // Validación de datos (listas, casillas, número, fecha…)
+      ["UniverDataValidation", "UniverDataValidationPlugin"],
+      ["UniverSheetsDataValidation", "UniverSheetsDataValidationPlugin"],
+      ["UniverSheetsDataValidationUi", "UniverSheetsDataValidationUIPlugin"],
+      // NOTA: el grupo "drawing" (imágenes) se omite adrede: el preset core 0.5.5
+      // ya trae drawing-manager.service; re-registrarlo rompe la inicialización.
+      // Comentarios / hilos (thread-comment)
+      ["UniverThreadComment", "UniverThreadCommentPlugin"],
+      ["UniverThreadCommentUi", "UniverThreadCommentUIPlugin"],
+      ["UniverSheetsThreadComment", "UniverSheetsThreadCommentPlugin"],
+      ["UniverSheetsThreadCommentUi", "UniverSheetsThreadCommentUIPlugin"],
+      // Filtros
+      ["UniverSheetsFilter", "UniverSheetsFilterPlugin"],
+      ["UniverSheetsFilterUi", "UniverSheetsFilterUIPlugin"],
+      // Ordenar
+      ["UniverSheetsSort", "UniverSheetsSortPlugin"],
+      ["UniverSheetsSortUi", "UniverSheetsSortUIPlugin"],
+      // Buscar y reemplazar
+      ["UniverFindReplace", "UniverFindReplacePlugin"],
+      ["UniverSheetsFindReplace", "UniverSheetsFindReplacePlugin"],
+      // Formato condicional
+      ["UniverSheetsConditionalFormatting", "UniverSheetsConditionalFormattingPlugin"],
+      ["UniverSheetsConditionalFormattingUi", "UniverSheetsConditionalFormattingUIPlugin"],
+      // Hipervínculos
+      ["UniverSheetsHyperLink", "UniverSheetsHyperLinkPlugin"],
+      ["UniverSheetsHyperLinkUi", "UniverSheetsHyperLinkUIPlugin"],
+    ];
+
+    const ossPlugins = [];
+    for (const [g, name] of pluginSpecs) {
+      try {
+        const mod = window[g];
+        const plugin = mod && mod[name];
+        if (plugin) ossPlugins.push(plugin);
+        else console.warn("[XlsView] Plugin OSS no disponible:", g, name);
+      } catch (e) { /* omitir el que falle */ }
+    }
+
+    // Combinar los textos (locales) de los presets adicionales sobre el core.
+    // Cada global es un objeto de locale ya listo; se hace merge profundo.
+    const mergedLocale = deepMergeLocale({}, localeEnUS);
+    [
+      window.UniverSheetsDataValidationUiEnUS,   // ya lo cargabas (univer-dv-locale)
+      window.UniverThreadCommentUiEnUS,
+      window.UniverSheetsFilterUiEnUS,
+      window.UniverSheetsSortEnUS,
+      window.UniverFindReplaceEnUS,
+      window.UniverSheetsConditionalFormattingUiEnUS,
+      window.UniverSheetsHyperLinkUiEnUS,
+    ].forEach((loc) => { if (loc) deepMergeLocale(mergedLocale, loc); });
 
     const cfg = {
       locale: LocaleType.EN_US,
-      locales: { [LocaleType.EN_US]: localeEnUS },
+      locales: { [LocaleType.EN_US]: mergedLocale },
       theme: defaultTheme,
       presets: [
         UniverSheetsCorePreset({ container: "univer-host" }),
       ],
     };
-    if (dvPlugins.length) cfg.plugins = dvPlugins;
+    if (ossPlugins.length) cfg.plugins = ossPlugins;
     const { univerAPI: api } = createUniver(cfg);
     univerAPI = api;
 
