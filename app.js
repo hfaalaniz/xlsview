@@ -209,14 +209,28 @@
   //  Inicialización de Univer
   // ---------------------------------------------------------------------------
   function initUniver() {
-    const { univerAPI: api } = createUniver({
+    // Plugins de validación de datos (listas, casillas, número, fecha…).
+    // Son open source; se registran tras el preset core que trae sus dependencias.
+    const dvPlugins = [];
+    try {
+      const DV = window.UniverDataValidation;
+      const SDV = window.UniverSheetsDataValidation;
+      const SDVUI = window.UniverSheetsDataValidationUi;
+      if (DV && DV.UniverDataValidationPlugin) dvPlugins.push(DV.UniverDataValidationPlugin);
+      if (SDV && SDV.UniverSheetsDataValidationPlugin) dvPlugins.push(SDV.UniverSheetsDataValidationPlugin);
+      if (SDVUI && SDVUI.UniverSheetsDataValidationUIPlugin) dvPlugins.push(SDVUI.UniverSheetsDataValidationUIPlugin);
+    } catch (e) { /* si no cargaron, seguimos sin validación */ }
+
+    const cfg = {
       locale: LocaleType.EN_US,
       locales: { [LocaleType.EN_US]: localeEnUS },
       theme: defaultTheme,
       presets: [
         UniverSheetsCorePreset({ container: "univer-host" }),
       ],
-    });
+    };
+    if (dvPlugins.length) cfg.plugins = dvPlugins;
+    const { univerAPI: api } = createUniver(cfg);
     univerAPI = api;
 
     // Marcar la pestaña activa como "modificada" ante cualquier edición.
@@ -928,7 +942,7 @@
 
     // Leer los estilos completos del archivo original (solo xlsx/xlsm; el CSV y
     // el xls antiguo no tienen styles.xml y se ignoran silenciosamente).
-    let richStyles = null, richPanes = null, richProtection = null, richPage = null;
+    let richStyles = null, richPanes = null, richProtection = null, richPage = null, richValidations = null;
     try {
       if (window.XlsxStyles && wb.files) {
         const built = window.XlsxStyles.build(wb);
@@ -937,11 +951,30 @@
           richPanes = built.panesByName;
           richProtection = built.protectionByName;
           richPage = built.pageByName;
+          richValidations = built.validationsByName;
         }
       }
     } catch (e) { /* si falla el parser, seguimos con el estilo básico */ }
 
     const uniData = sheetjsToUniver(wb, name, richStyles, richPanes, richProtection);
+
+    // Validaciones de datos leídas del OOXML -> recurso del plugin de Univer.
+    // sheetjsToUniver asigna sheet-0, sheet-1… en el orden de wb.SheetNames.
+    try {
+      if (richValidations && Object.keys(richValidations).length) {
+        const bySheetId = {};
+        wb.SheetNames.forEach((sn, idx) => {
+          if (richValidations[sn]) bySheetId["sheet-" + idx] = richValidations[sn];
+        });
+        if (Object.keys(bySheetId).length) {
+          uniData.resources = uniData.resources || [];
+          uniData.resources.push({
+            name: "SHEET_DATA_VALIDATION_PLUGIN",
+            data: JSON.stringify(bySheetId),
+          });
+        }
+      }
+    } catch (e) { /* si falla, se abre sin validaciones */ }
     // Config de página por nombre de hoja (para impresión). Normalizamos a un
     // objeto por defecto si el archivo no la trae.
     const pageConfig = normalizePageConfig(richPage, wb.SheetNames);
@@ -1266,6 +1299,8 @@
     $("btnPageSetup").disabled = !has;
     $("btnMacro").disabled = !has;
     $("btnChart").disabled = !has;
+    $("btnValidate").disabled = !has;
+    $("btnForm").disabled = !has;
     $("curName").textContent = has
       ? activeTab.name + (activeTab.dirty ? "  •" : "")
       : "— sin archivo —";
@@ -1671,6 +1706,166 @@
     });
   }
 
+  // ===========================================================================
+  //  Formulario de captura / data entry (form.js)
+  // ===========================================================================
+  function initForm() {
+    if (!window.XlsxForm) return;
+    window.XlsxForm.init({
+      getApi: () => univerAPI,
+      getActiveTab: () => activeTab,
+      toast: toast,
+      confirm: (msg, opts) => dlg.confirm(msg, opts),
+      onDirty: () => { if (activeTab) markDirty(activeTab, true); },
+    });
+    $("btnForm").addEventListener("click", () => {
+      if (!activeTab) return;
+      window.XlsxForm.open();
+    });
+  }
+
+  // ===========================================================================
+  //  Validación de datos (plugin de Univer)
+  // ===========================================================================
+  let valRange = null;   // rango activo capturado al abrir el modal
+
+  function a1n(row, col) {
+    let s = "", c = col;
+    do { s = String.fromCharCode(65 + (c % 26)) + s; c = Math.floor(c / 26) - 1; } while (c >= 0);
+    return s + (row + 1);
+  }
+
+  function openValidateModal() {
+    if (!activeTab || !univerAPI.newDataValidation) {
+      toast("La validación no está disponible", "err"); return;
+    }
+    try {
+      const ws = univerAPI.getActiveWorkbook().getActiveSheet();
+      const rng = ws.getActiveRange && ws.getActiveRange();
+      if (!rng) { toast("Selecciona primero un rango", "err"); return; }
+      const r = rng.getRow ? rng.getRow() : 0;
+      const c = rng.getColumn ? rng.getColumn() : 0;
+      const h = rng.getHeight ? rng.getHeight() : 1;
+      const w = rng.getWidth ? rng.getWidth() : 1;
+      valRange = { row: r, col: c, h, w, sheetName: ws.getSheetName ? ws.getSheetName() : "" };
+      $("vaRange").textContent = valRange.sheetName + "!" + a1n(r, c) +
+        (h > 1 || w > 1 ? ":" + a1n(r + h - 1, c + w - 1) : "");
+      updateValFields();
+      $("valModal").classList.add("open");
+    } catch (e) { toast("No se pudo leer la selección: " + e.message, "err"); }
+  }
+  function closeValidateModal() { $("valModal").classList.remove("open"); }
+
+  // Muestra/oculta los campos según el tipo elegido.
+  function updateValFields() {
+    const type = $("vaType").value;
+    document.querySelector(".va-list").style.display = type === "list" ? "" : "none";
+    document.querySelector(".va-range").style.display = type === "range" ? "" : "none";
+    document.querySelector(".va-cmp").style.display = (type === "number" || type === "date") ? "" : "none";
+    // valor 2 solo para between/notBetween
+    const op = $("vaOp").value;
+    document.querySelector(".va-val2").style.display = (op === "between" || op === "notBetween") ? "" : "none";
+    $("vaLbl1").textContent = (op === "between" || op === "notBetween") ? "Desde" : "Valor";
+    $("vaVal1").type = type === "date" ? "date" : "text";
+    $("vaVal2").type = type === "date" ? "date" : "text";
+    $("vaDropdown").parentElement.style.opacity = (type === "list" || type === "range") ? "1" : "0.5";
+  }
+
+  function applyValidation() {
+    if (!valRange) return;
+    try {
+      const ws = univerAPI.getActiveWorkbook().getActiveSheet();
+      const rng = ws.getRange(valRange.row, valRange.col, valRange.h, valRange.w);
+      const type = $("vaType").value;
+      const b = univerAPI.newDataValidation();
+      let builder;
+
+      if (type === "list") {
+        const raw = $("vaListValues").value;
+        const vals = raw.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
+        if (!vals.length) { toast("Escribe al menos un valor", "err"); return; }
+        builder = b.requireValueInList(vals, true, $("vaDropdown").checked);
+      } else if (type === "range") {
+        const src = $("vaSourceRange").value.trim();
+        if (!src) { toast("Indica el rango de origen", "err"); return; }
+        // El builder espera una fórmula tipo =$F$1:$F$10 o Hoja!F1:F10
+        builder = b.requireValueInRange(src.startsWith("=") ? src : "=" + src, true, $("vaDropdown").checked);
+      } else if (type === "checkbox") {
+        builder = b.requireCheckbox();
+      } else if (type === "number") {
+        builder = numOrDateBuilder(b, "number");
+        if (!builder) return;
+      } else if (type === "date") {
+        builder = numOrDateBuilder(b, "date");
+        if (!builder) return;
+      }
+      if (!builder) return;
+      if (builder.setAllowInvalid) builder.setAllowInvalid(!$("vaReject").checked);
+      const rule = builder.build();
+      rng.setDataValidation(rule);
+      markDirty(activeTab, true);
+      closeValidateModal();
+      toast("Validación aplicada ✓", "ok");
+    } catch (e) { toast("Error al aplicar: " + e.message, "err"); }
+  }
+
+  // Construye la regla de número o fecha según el operador.
+  function numOrDateBuilder(b, kind) {
+    const op = $("vaOp").value;
+    const v1s = $("vaVal1").value, v2s = $("vaVal2").value;
+    if (kind === "number") {
+      const v1 = parseFloat(v1s), v2 = parseFloat(v2s);
+      if (isNaN(v1)) { toast("Valor no válido", "err"); return null; }
+      switch (op) {
+        case "between": return b.requireNumberBetween(v1, isNaN(v2) ? v1 : v2);
+        case "notBetween": return b.requireNumberNotBetween(v1, isNaN(v2) ? v1 : v2);
+        case "equal": return b.requireNumberEqualTo(v1);
+        case "notEqual": return b.requireNumberNotEqualTo(v1);
+        case "gt": return b.requireNumberGreaterThan(v1);
+        case "gte": return b.requireNumberGreaterThanOrEqualTo(v1);
+        case "lt": return b.requireNumberLessThan(v1);
+        case "lte": return b.requireNumberLessThanOrEqualTo(v1);
+      }
+    } else {
+      // fechas como texto ISO YYYY-MM-DD
+      if (!v1s) { toast("Indica una fecha", "err"); return null; }
+      switch (op) {
+        case "between": return b.requireDateBetween(v1s, v2s || v1s);
+        case "notBetween": return b.requireDateNotBetween(v1s, v2s || v1s);
+        case "equal": return b.requireDateEqualTo(v1s);
+        case "gt": return b.requireDateAfter(v1s);
+        case "gte": return b.requireDateOnOrAfter(v1s);
+        case "lt": return b.requireDateBefore(v1s);
+        case "lte": return b.requireDateOnOrBefore(v1s);
+        default: return b.requireDateBetween(v1s, v2s || v1s);
+      }
+    }
+    return null;
+  }
+
+  function clearValidation() {
+    if (!valRange) return;
+    try {
+      const ws = univerAPI.getActiveWorkbook().getActiveSheet();
+      const rng = ws.getRange(valRange.row, valRange.col, valRange.h, valRange.w);
+      if (rng.setDataValidation) rng.setDataValidation(null);
+      markDirty(activeTab, true);
+      closeValidateModal();
+      toast("Validación quitada", "ok");
+    } catch (e) { toast("Error: " + e.message, "err"); }
+  }
+
+  function wireValidation() {
+    if (!$("btnValidate")) return;
+    $("btnValidate").addEventListener("click", openValidateModal);
+    $("vaClose").addEventListener("click", closeValidateModal);
+    $("vaCancel").addEventListener("click", closeValidateModal);
+    $("vaApply").addEventListener("click", applyValidation);
+    $("vaClear").addEventListener("click", clearValidation);
+    $("vaType").addEventListener("change", updateValFields);
+    $("vaOp").addEventListener("change", updateValFields);
+  }
+
   function wireMacros() {
     $("btnMacro").addEventListener("click", openMacroModal);
     $("mcClose").addEventListener("click", closeMacroModal);
@@ -1756,6 +1951,8 @@
         if ($("printPreview").classList.contains("open")) { window.XlsxPrint.close(); return; }
         if ($("pageModal").classList.contains("open")) { $("pageModal").classList.remove("open"); return; }
         if ($("chartModal").classList.contains("open")) { $("chartModal").classList.remove("open"); return; }
+        if ($("valModal").classList.contains("open")) { $("valModal").classList.remove("open"); return; }
+        if ($("formModal").classList.contains("open")) { $("formModal").classList.remove("open"); return; }
         if ($("macroModal").classList.contains("open")) { $("macroModal").classList.remove("open"); return; }
       }
     });
@@ -1852,6 +2049,8 @@
     wirePrintUI();
     loadMacros();          // siembra las macros de ejemplo la primera vez
     initCharts();          // motor de gráficos (ECharts)
+    wireValidation();      // validación de datos (plugin de Univer)
+    initForm();            // formulario de captura (data entry)
     setWelcome(true);
     updateToolbar();
 

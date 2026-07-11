@@ -177,6 +177,42 @@ rango con datos y ábrelo.
 - **Múltiples gráficos** por hoja: se guardan en el `.xlsx` (como
   `xl/xlsview-charts.json` dentro del ZIP) y se recuperan al reabrir.
 
+## Validación de datos
+
+Botón **✓ Validar**: selecciona un rango y define qué se puede escribir en él
+(plugin oficial de Univer, open source). Tipos:
+
+- **Lista de valores** (escribes las opciones) o **lista desde un rango** →
+  desplegable en la celda
+- **Casilla de verificación**
+- **Número** con condición (entre, igual, mayor que…)
+- **Fecha** con condición
+
+Opciones: mostrar/ocultar el desplegable, y **rechazar** entradas inválidas o
+solo advertir. Se puede **quitar** la validación de un rango.
+
+La validación se guarda como **`<dataValidation>` OOXML estándar** dentro del
+`.xlsx` —así **Excel también la lee**— y XlsView la recupera al reabrir.
+
+## Formulario de captura (data entry)
+
+Botón **📝 Formulario**: da de alta y edita registros en una tabla mediante un
+diálogo, como el «Formulario» clásico de Excel.
+
+- **Detecta la tabla** a partir de la selección: la fila seleccionada son los
+  encabezados y genera un campo por columna. Si seleccionas una sola celda,
+  expande a las columnas contiguas con encabezado.
+- **Navega** los registros existentes (◀ Anterior / Siguiente ▶), muestra
+  «Registro N de M».
+- **＋ Nuevo** agrega una fila al final; **💾 Guardar registro** vuelca los
+  campos a la hoja (los números se guardan como número, las fórmulas `=…` como
+  fórmula).
+- **🗑️ Eliminar** quita el registro y desplaza los de abajo.
+- **Buscar** salta al siguiente registro que contenga un texto.
+
+Escribe celdas normales, así que los datos se guardan como cualquier contenido.
+`Enter` en un campo guarda el registro.
+
 ## Fórmulas, funciones propias y macros
 
 El motor de Univer trae **525 funciones** (las 14 categorías de Excel) con

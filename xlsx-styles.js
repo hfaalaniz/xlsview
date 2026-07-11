@@ -391,6 +391,7 @@
     result.panesByName = {};
     result.protectionByName = {};   // { hoja: { protected, opts } }
     result.pageByName = {};         // { hoja: { setup, margins, options, printArea, repeatRows, repeatCols } }
+    result.validationsByName = {};  // { hoja: [reglas de validación de datos] }
 
     // Áreas de impresión y filas/columnas repetidas viven en definedName del wb.
     const printAreas = {}, repeatByIdx = {};
@@ -438,6 +439,17 @@
         const xs = parseInt(paneNode.getAttribute("xSplit") || "0", 10) || 0;
         const ys = parseInt(paneNode.getAttribute("ySplit") || "0", 10) || 0;
         if (xs > 0 || ys > 0) result.panesByName[sheetName] = { xSplit: xs, ySplit: ys };
+      }
+
+      // Validación de datos: <dataValidation type sqref><formula1>…
+      const dvNodes = doc.getElementsByTagName("dataValidation");
+      if (dvNodes.length) {
+        const rules = [];
+        for (let i = 0; i < dvNodes.length; i++) {
+          const rule = parseDataValidationNode(dvNodes[i]);
+          if (rule) rules.push(rule);
+        }
+        if (rules.length) result.validationsByName[sheetName] = rules;
       }
 
       // Protección de hoja: <sheetProtection sheet="1" .../>
@@ -933,9 +945,143 @@
     return s;
   }
 
+  // -------------------------------------------------------------------------
+  //  Validación de datos: OOXML -> formato del recurso de Univer (para LEER).
+  // -------------------------------------------------------------------------
+  function parseSqref(sqref) {
+    // "A1:A3 C1" -> [{startRow,startColumn,endRow,endColumn}, ...]
+    return String(sqref || "").trim().split(/\s+/).filter(Boolean).map((ref) => {
+      const parts = ref.split(":");
+      const a = decodeRef(parts[0]);
+      const b = parts[1] ? decodeRef(parts[1]) : a;
+      if (!a || !b) return null;
+      return { startRow: a.r, startColumn: a.c, endRow: b.r, endColumn: b.c };
+    }).filter(Boolean);
+  }
+
+  function parseDataValidationNode(node) {
+    const oxType = node.getAttribute("type") || "";
+    const op = node.getAttribute("operator") || "";
+    const sqref = node.getAttribute("sqref") || "";
+    const ranges = parseSqref(sqref);
+    if (!ranges.length) return null;
+    const f1el = node.getElementsByTagName("formula1")[0];
+    const f2el = node.getElementsByTagName("formula2")[0];
+    let f1 = f1el ? (f1el.textContent || "").trim() : "";
+    let f2 = f2el ? (f2el.textContent || "").trim() : "";
+
+    let type;
+    if (oxType === "list") {
+      // "a,b,c" entre comillas = lista fija; si no, referencia a rango -> "=…"
+      if (/^".*"$/.test(f1)) { type = "listMultiple"; f1 = f1.slice(1, -1); }
+      else { type = "listMultiple"; f1 = "=" + f1; }
+    } else if (oxType === "decimal") type = "decimal";
+    else if (oxType === "whole") type = "whole";
+    else if (oxType === "date") type = "date";
+    else if (oxType === "time") type = "time";
+    else if (oxType === "textLength") type = "textLength";
+    else if (oxType === "custom") type = "custom";
+    else return null;
+
+    const rule = {
+      uid: "dv-" + Math.random().toString(36).slice(2, 12),
+      ranges, type, formula1: f1,
+    };
+    if (f2) rule.formula2 = f2;
+    if (op) rule.operator = op;
+    if (type === "listMultiple") rule.showDropDown = node.getAttribute("showDropDown") !== "1";
+    return rule;
+  }
+
+  // -------------------------------------------------------------------------
+  //  Validación de datos: del recurso de Univer al OOXML <dataValidations>.
+  // -------------------------------------------------------------------------
+  // Extrae el recurso SHEET_DATA_VALIDATION_PLUGIN -> { sheetId: [reglas] }.
+  function extractDataValidations(snapshot) {
+    const out = {};
+    try {
+      const res = (snapshot.resources || []).find((r) => r.name === "SHEET_DATA_VALIDATION_PLUGIN");
+      if (!res || !res.data) return out;
+      const data = typeof res.data === "string" ? JSON.parse(res.data) : res.data;
+      for (const sid in data) if (Array.isArray(data[sid]) && data[sid].length) out[sid] = data[sid];
+    } catch (e) { /* sin validaciones */ }
+    return out;
+  }
+
+  // Tipo interno de Univer -> tipo OOXML.
+  const DV_TYPE = {
+    list: "list", listMultiple: "list", checkbox: "list",
+    decimal: "decimal", whole: "whole", date: "date", time: "time",
+    textLength: "textLength", custom: "custom",
+  };
+  // Operador de Univer -> operador OOXML (coinciden casi 1:1).
+  const DV_OP = {
+    between: "between", notBetween: "notBetween", equal: "equal", notEqual: "notEqual",
+    greaterThan: "greaterThan", greaterThanOrEqual: "greaterThanOrEqual",
+    lessThan: "lessThan", lessThanOrEqual: "lessThanOrEqual",
+  };
+
+  function colLetter(c) {
+    let s = "", n = c;
+    do { s = String.fromCharCode(65 + (n % 26)) + s; n = Math.floor(n / 26) - 1; } while (n >= 0);
+    return s;
+  }
+  function rangeRef(r) {
+    const a = colLetter(r.startColumn) + (r.startRow + 1);
+    const b = colLetter(r.endColumn) + (r.endRow + 1);
+    return a === b ? a : a + ":" + b;
+  }
+
+  // Genera el bloque <dataValidations> y lo inserta en el XML de la hoja.
+  function injectDataValidations(sheetXml, rules) {
+    const items = [];
+    for (const rule of rules) {
+      const type = DV_TYPE[rule.type] || null;
+      if (!type) continue;
+      const sqref = (rule.ranges || []).map(rangeRef).join(" ");
+      if (!sqref) continue;
+
+      let attrs = 'type="' + type + '"';
+      // checkbox se modela como lista de 2 valores.
+      const isCheckbox = rule.type === "checkbox";
+      if (rule.operator && DV_OP[rule.operator] && type !== "list") {
+        attrs += ' operator="' + DV_OP[rule.operator] + '"';
+      }
+      if (type === "list") {
+        attrs += ' allowBlank="1"';
+        attrs += rule.showDropDown === false ? ' showDropDown="1"' : "";  // OOXML: showDropDown="1" OCULTA
+      } else {
+        attrs += ' allowBlank="1"';
+      }
+      attrs += ' sqref="' + sqref + '"';
+
+      let inner = "";
+      if (type === "list") {
+        let list;
+        if (isCheckbox) list = '"' + (rule.formula1 || "1") + ',' + (rule.formula2 || "0") + '"';
+        else if (rule.formula1 && /^=/.test(rule.formula1)) list = rule.formula1.slice(1); // referencia a rango
+        else list = '"' + String(rule.formula1 || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;") + '"';
+        inner += "<formula1>" + list + "</formula1>";
+      } else {
+        if (rule.formula1 != null && rule.formula1 !== "") inner += "<formula1>" + esc(String(rule.formula1)) + "</formula1>";
+        if (rule.formula2 != null && rule.formula2 !== "") inner += "<formula2>" + esc(String(rule.formula2)) + "</formula2>";
+      }
+      items.push("<dataValidation " + attrs + ">" + inner + "</dataValidation>");
+    }
+    if (!items.length) return sheetXml;
+
+    const block = '<dataValidations count="' + items.length + '">' + items.join("") + "</dataValidations>";
+    // OOXML: <dataValidations> va antes de <pageMargins>/<pageSetup>/<printOptions>
+    // y después de <mergeCells>/<conditionalFormatting>. Insertamos antes del
+    // primero de esos, o antes de </worksheet> si no hay ninguno.
+    const before = sheetXml.search(/<(pageMargins|pageSetup|printOptions|headerFooter|drawing)\b/);
+    if (before >= 0) return sheetXml.slice(0, before) + block + sheetXml.slice(before);
+    return sheetXml.replace(/<\/worksheet>/, block + "</worksheet>");
+  }
+
   // API pública de escritura: recibe el buffer xlsx (Uint8Array/ArrayBuffer), el
   // snapshot de Univer y opts { protection, page }; devuelve un nuevo Uint8Array
-  // con los estilos, freeze panes, protección y config de página aplicados.
+  // con los estilos, freeze panes, protección, config de página y validaciones.
   function apply(xlsxBuf, snapshot, opts) {
     opts = opts || {};
     const protection = opts.protection || {};
@@ -982,15 +1128,18 @@
       }
     }
 
-    // Mapas nombre de hoja -> freeze / protección (desde snapshot y opts).
+    // Mapas nombre de hoja -> freeze / protección / validaciones.
     const freezeByName = {};
     const protByName = {};
+    const dvBySheetId = extractDataValidations(snapshot);   // { "sheet-0": [reglas...] }
+    const dvByName = {};
     const order = snapshot.sheetOrder || Object.keys(snapshot.sheets || {});
     order.forEach((sid) => {
       const sh = snapshot.sheets[sid];
       const nm = (sh && sh.name) || sid;
       if (sh && sh.freeze && (sh.freeze.xSplit || sh.freeze.ySplit)) freezeByName[nm] = sh.freeze;
       if (protection[sid] && protection[sid].enabled) protByName[nm] = protection[sid];
+      if (dvBySheetId[sid] && dvBySheetId[sid].length) dvByName[nm] = dvBySheetId[sid];
     });
 
     // Reescribir cada hoja con estilos (+ freeze panes + protección + página).
@@ -1000,8 +1149,9 @@
       const path = nameToPath[name];
       const xml = readPath(path);
       if (!xml) return;
-      const rewritten = rewriteSheetXml(
+      let rewritten = rewriteSheetXml(
         xml, tables.perSheet[name] || {}, freezeByName[name], protByName[name], pageByName[name]);
+      if (dvByName[name]) rewritten = injectDataValidations(rewritten, dvByName[name]);
       CFB.utils.cfb_add(zip, "/" + path, str2buf(rewritten));
     });
 
