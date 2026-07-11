@@ -123,6 +123,16 @@ protección y el estado de cada celda se conservan al guardar.
 - **Guardar** sobrescribe el archivo original en disco a través del host.
 - **Guardar como…** abre el diálogo nativo de Windows y elige formato
   (`xlsx`, `xlsm`, `xls`, `csv`).
+- **Cambios sin guardar al cerrar:** al cerrar una pestaña o toda la ventana
+  (aspa, `Esc`, `Alt+F4`) con cambios pendientes, XlsView intercepta el cierre y
+  muestra un diálogo propio con **Guardar / No guardar / Cancelar**. Si hay
+  varias pestañas modificadas, las lista todas y ofrece «Guardar todo». Sin
+  cambios, cierra directo sin preguntar.
+
+> Los avisos y confirmaciones dentro del editor usan **diálogos propios** con el
+> estilo de la app (no los cuadros nativos del navegador). Los `MessageBox`
+> nativos solo aparecen en fallos de arranque/instalación, cuando la interfaz
+> web aún no está disponible.
 
 ## Impresión y configuración de página
 

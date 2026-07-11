@@ -11,6 +11,12 @@ tools/**/obj/
 ~$*
 .~lock.*#
 
+# Carpeta de ejemplos: solo versionar el libro de ejemplos y su generador;
+# ignorar PDFs, xlsx de prueba/personales y backups que se copian ahí.
+ejemplos/*
+!ejemplos/Ejemplos XlsView.xlsx
+!ejemplos/generar-ejemplos.js
+
 # SO / editor
 Thumbs.db
 Desktop.ini

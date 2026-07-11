@@ -278,6 +278,53 @@
   }
   .modal-foot-spacer { flex: 1 1 auto; }
 
+  /* ---------- Diálogo genérico (alert/confirm/prompt) ---------- */
+  .dlg-overlay {
+    position: fixed; inset: 0; z-index: 400;
+    display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,0.55); backdrop-filter: blur(1px);
+  }
+  .dlg-overlay.open { display: flex; }
+  .dlg-box {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    width: 440px; max-width: 92vw; box-shadow: 0 16px 56px rgba(0,0,0,0.55);
+    overflow: hidden; animation: dlgPop 0.14s ease-out;
+  }
+  @keyframes dlgPop { from { transform: scale(0.96); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+  .dlg-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 16px 18px 8px;
+  }
+  .dlg-icon { font-size: 20px; }
+  .dlg-title { font-size: 15px; font-weight: 600; color: var(--text); }
+  .dlg-msg {
+    padding: 4px 18px 16px; color: var(--text-dim); font-size: 13.5px;
+    line-height: 1.55; white-space: pre-wrap; max-height: 50vh; overflow-y: auto;
+  }
+  .dlg-msg ul { margin: 8px 0 0; padding-left: 20px; }
+  .dlg-msg li { color: var(--text); margin: 2px 0; }
+  .dlg-input {
+    margin: 0 18px 16px; width: calc(100% - 36px);
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); padding: 8px 10px; font-size: 13px; font-family: inherit;
+  }
+  .dlg-input:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+  .dlg-buttons {
+    display: flex; justify-content: flex-end; gap: 8px;
+    padding: 12px 18px; background: var(--panel2); border-top: 1px solid var(--border);
+  }
+  .dlg-buttons button {
+    -webkit-app-region: no-drag; height: 32px; padding: 0 16px;
+    border: 1px solid var(--border); border-radius: 7px;
+    background: transparent; color: var(--text); cursor: pointer; font-size: 13px;
+  }
+  .dlg-buttons button:hover { background: var(--bg); }
+  .dlg-buttons button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .dlg-buttons button.primary:hover { background: var(--accent-hover); }
+  .dlg-buttons button.danger { background: #7a2f2f; border-color: #9a3f3f; color: #fff; }
+  .dlg-buttons button.danger:hover { background: #8f3838; }
+  .dlg-buttons button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
   /* ---------- Modal de gráficos ---------- */
   .chart-card { width: 1040px; max-width: 96vw; height: 82vh; }
   .chart-body { padding: 0; flex: 1 1 auto; overflow: hidden; }
@@ -399,6 +446,19 @@
 
 <input type="file" id="filePicker" accept=".xlsx,.xlsm,.xls,.csv" />
 <div id="toast"></div>
+
+<!-- ===================== Diálogo genérico (alert/confirm/prompt) ===================== -->
+<div id="dlgOverlay" class="dlg-overlay">
+  <div class="dlg-box" role="dialog" aria-modal="true">
+    <div class="dlg-head">
+      <span class="dlg-icon" id="dlgIcon">❓</span>
+      <span class="dlg-title" id="dlgTitle">Título</span>
+    </div>
+    <div class="dlg-msg" id="dlgMsg"></div>
+    <input type="text" id="dlgInput" class="dlg-input" style="display:none" />
+    <div class="dlg-buttons" id="dlgButtons"></div>
+  </div>
+</div>
 
 <!-- ===================== Modal: Configurar página ===================== -->
 <div id="pageModal" class="modal">

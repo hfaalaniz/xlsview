@@ -22,6 +22,8 @@ namespace XlsView
         private readonly string _initialUrl;
         private bool _trueFullscreen = false;
         private SplashForm _splash;
+        private bool _forceClose = false;   // true = cerrar sin volver a preguntar al JS
+        private bool _webReady = false;     // el editor web ya cargó y puede recibir mensajes
 
         public ViewerForm(string initialUrl, SplashForm splash = null)
         {
@@ -145,8 +147,12 @@ namespace XlsView
                     BeginInvoke(new Action<string>(HandleDrag), msg);
                 else if (msg.IndexOf("rendered", StringComparison.OrdinalIgnoreCase) >= 0)
                     BeginInvoke(new Action(DismissSplash));
+                else if (msg.Equals("force-close", StringComparison.OrdinalIgnoreCase))
+                    BeginInvoke(new Action(() => { _forceClose = true; Close(); }));
                 else if (msg.IndexOf("close", StringComparison.OrdinalIgnoreCase) >= 0)
-                    BeginInvoke(new Action(Close));
+                    // El botón/atajo de cerrar del editor: enrutar por la misma
+                    // comprobación de cambios sin guardar que el aspa de la ventana.
+                    BeginInvoke(new Action(() => RequestClose()));
                 else if (msg.IndexOf("fullscreen", StringComparison.OrdinalIgnoreCase) >= 0)
                     BeginInvoke(new Action(ToggleTrueFullscreen));
                 else if (msg.IndexOf("minimize", StringComparison.OrdinalIgnoreCase) >= 0)
@@ -162,6 +168,35 @@ namespace XlsView
                 _splash = null;
                 try { s.CloseSplash(); } catch { }
             }
+            _webReady = true;   // el editor ya está listo para el flujo de cierre
+        }
+
+        // El usuario pidió cerrar. Si el editor está listo, delegamos en el JS
+        // (que comprueba cambios sin guardar y muestra el diálogo propio). El JS
+        // responderá "force-close" si procede cerrar.
+        private void RequestClose()
+        {
+            if (_forceClose) { Close(); return; }
+            if (_webReady && _web != null && _web.CoreWebView2 != null)
+            {
+                try { _web.CoreWebView2.PostWebMessageAsString("query-close"); return; }
+                catch { }
+            }
+            _forceClose = true;   // sin editor listo, cerrar directo
+            Close();
+        }
+
+        // Intercepta el cierre de la ventana (aspa, Alt+F4, cerrar sistema).
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (!_forceClose && _webReady)
+            {
+                // No cerrar aún: preguntar al editor por cambios sin guardar.
+                e.Cancel = true;
+                RequestClose();
+                return;
+            }
+            base.OnFormClosing(e);
         }
 
         public void NavigateTo(string url)
@@ -177,7 +212,7 @@ namespace XlsView
             // que Esc lo maneje el editor; F11 y Ctrl+M sí actúan.
             if (e.Alt && e.KeyCode == Keys.F4)
             {
-                Close(); e.Handled = true; return;
+                RequestClose(); e.Handled = true; return;
             }
             if (e.KeyCode == Keys.F11)
             {

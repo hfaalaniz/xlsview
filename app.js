@@ -95,6 +95,97 @@
     toast._t = setTimeout(() => { t.className = ""; }, 2600);
   }
 
+  // ---------------------------------------------------------------------------
+  //  Diálogo personalizado (reemplaza alert/confirm/prompt nativos).
+  //  Todas las funciones devuelven una Promise.
+  // ---------------------------------------------------------------------------
+  const dlg = (function () {
+    let resolver = null;
+
+    function close(result) {
+      $("dlgOverlay").classList.remove("open");
+      const r = resolver; resolver = null;
+      if (r) r(result);
+    }
+
+    // opts: { title, message, icon, html, input, buttons:[{label,value,variant,default}] }
+    function show(opts) {
+      return new Promise((resolve) => {
+        // Si ya hay un diálogo abierto, lo cerramos como cancelado.
+        if (resolver) { const r = resolver; resolver = null; r(undefined); }
+        resolver = resolve;
+
+        $("dlgIcon").textContent = opts.icon || "❓";
+        $("dlgTitle").textContent = opts.title || "XlsView";
+        const msg = $("dlgMsg");
+        if (opts.html) msg.innerHTML = opts.html; else msg.textContent = opts.message || "";
+
+        const inp = $("dlgInput");
+        if (opts.input != null) {
+          inp.style.display = "";
+          inp.value = String(opts.input);
+        } else {
+          inp.style.display = "none";
+          inp.value = "";
+        }
+
+        const box = $("dlgButtons");
+        box.innerHTML = "";
+        const buttons = opts.buttons || [{ label: "Aceptar", value: true, variant: "primary", default: true }];
+        buttons.forEach((b) => {
+          const el = document.createElement("button");
+          el.textContent = b.label;
+          if (b.variant) el.className = b.variant;
+          el.addEventListener("click", () => {
+            const val = opts.input != null && b.value !== false ? inp.value : b.value;
+            close(val);
+          });
+          box.appendChild(el);
+          if (b.default) setTimeout(() => el.focus(), 30);
+        });
+
+        $("dlgOverlay").classList.add("open");
+        if (opts.input != null) setTimeout(() => { inp.focus(); inp.select(); }, 30);
+      });
+    }
+
+    // Cierre por teclado: Esc = cancelar, Enter = botón por defecto.
+    document.addEventListener("keydown", (e) => {
+      if (!$("dlgOverlay").classList.contains("open")) return;
+      if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); close(undefined); }
+      else if (e.key === "Enter") {
+        const def = $("dlgButtons").querySelector("button.primary") || $("dlgButtons").querySelector("button");
+        if (def) { e.preventDefault(); def.click(); }
+      }
+    }, true);
+    // Clic fuera del cuadro = cancelar.
+    $("dlgOverlay").addEventListener("mousedown", (e) => {
+      if (e.target === $("dlgOverlay")) close(undefined);
+    });
+
+    return {
+      show,
+      alert(message, opts) {
+        return show(Object.assign({ icon: "ℹ️", title: "XlsView", message,
+          buttons: [{ label: "Aceptar", value: true, variant: "primary", default: true }] }, opts || {}));
+      },
+      confirm(message, opts) {
+        return show(Object.assign({ icon: "❓", title: "Confirmar", message,
+          buttons: [
+            { label: (opts && opts.cancelLabel) || "Cancelar", value: false },
+            { label: (opts && opts.okLabel) || "Aceptar", value: true, variant: (opts && opts.danger) ? "danger" : "primary", default: true },
+          ] }, opts || {}));
+      },
+      prompt(message, defaultValue, opts) {
+        return show(Object.assign({ icon: "✏️", title: "XlsView", message, input: defaultValue || "",
+          buttons: [
+            { label: "Cancelar", value: false },
+            { label: "Aceptar", variant: "primary", default: true },
+          ] }, opts || {}));
+      },
+    };
+  })();
+
   function showLoading(text) {
     $("loadingText").textContent = text || "Cargando…";
     $("loading").classList.add("show");
@@ -988,8 +1079,9 @@
     return { data: out, bookType };
   }
 
+  // Devuelve true si se guardó, false si se canceló o falló.
   async function saveActive() {
-    if (!activeTab) return;
+    if (!activeTab) return false;
     try {
       showLoading("Guardando…");
       const { data } = serialize(activeTab);
@@ -1004,27 +1096,30 @@
         if (!res.ok) throw new Error("HTTP " + res.status);
         markDirty(activeTab, false);
         toast("Guardado ✓", "ok");
+        return true;
       } else if (inHostApp) {
-        // En la app pero sin ruta conocida (archivo soltado por arrastre):
+        // En la app pero sin ruta conocida (archivo nuevo o soltado por arrastre):
         // delegar en "Guardar como" para elegir dónde escribir en disco.
         hideLoading();
-        await saveActiveAs();
-        return;
+        return await saveActiveAs();
       } else {
         // Navegador: descargar.
         downloadBlob(data, activeTab.name);
         markDirty(activeTab, false);
         toast("Archivo descargado", "ok");
+        return true;
       }
     } catch (e) {
       toast("Error al guardar: " + e.message, "err");
+      return false;
     } finally {
       hideLoading();
     }
   }
 
+  // Devuelve true si se guardó, false si se canceló o falló.
   async function saveActiveAs() {
-    if (!activeTab) return;
+    if (!activeTab) return false;
     try {
       showLoading("Guardando como…");
       const { data } = serialize(activeTab);
@@ -1041,8 +1136,10 @@
             if (j.token) activeTab.token = j.token;
             markDirty(activeTab, false);
             toast("Guardado como " + (j.name || "") + " ✓", "ok");
+            return true;
           } else {
             toast("Guardar como: cancelado");
+            return false;
           }
         } else {
           throw new Error("HTTP " + res.status);
@@ -1050,9 +1147,11 @@
       } else {
         downloadBlob(data, activeTab.name);
         toast("Archivo descargado", "ok");
+        return true;
       }
     } catch (e) {
       toast("Error: " + e.message, "err");
+      return false;
     } finally {
       hideLoading();
     }
@@ -1108,10 +1207,24 @@
     updateToolbar();
   }
 
-  function closeTab(t) {
+  async function closeTab(t) {
     if (t.dirty) {
-      const ok = confirm('"' + t.name + '" tiene cambios sin guardar.\n¿Cerrar de todos modos?');
-      if (!ok) return;
+      const choice = await dlg.show({
+        icon: "⚠️", title: "Cambios sin guardar",
+        message: '"' + t.name + '" tiene cambios sin guardar.\n¿Qué quieres hacer?',
+        buttons: [
+          { label: "Cancelar", value: "cancel" },
+          { label: "No guardar", value: "discard", variant: "danger" },
+          { label: "Guardar", value: "save", variant: "primary", default: true },
+        ],
+      });
+      if (choice === "cancel" || choice === undefined) return;
+      if (choice === "save") {
+        // Activar la pestaña para guardarla, y abortar si el guardado falla/cancela.
+        if (activeTab !== t) activateTab(t);
+        const saved = await saveActive();
+        if (saved === false) return;   // cancelado en "Guardar como"
+      }
     }
     const idx = tabs.indexOf(t);
     if (idx < 0) return;
@@ -1485,9 +1598,11 @@
     toast("Macro guardada ✓", "ok");
   }
 
-  function deleteCurrentMacro() {
+  async function deleteCurrentMacro() {
     if (macroSel < 0 || !macros[macroSel]) { toast("No hay macro seleccionada"); return; }
-    if (!confirm('¿Eliminar la macro "' + macros[macroSel].name + '"?')) return;
+    const ok = await dlg.confirm('¿Eliminar la macro "' + macros[macroSel].name + '"?',
+      { icon: "🗑️", title: "Eliminar macro", okLabel: "Eliminar", danger: true });
+    if (!ok) return;
     macros.splice(macroSel, 1);
     saveMacros();
     newMacro();
@@ -1645,10 +1760,63 @@
       }
     });
 
-    // Advertir cambios sin guardar al cerrar
+    // El host pregunta antes de cerrar la ventana: comprobamos cambios sin
+    // guardar y respondemos "force-close" si procede.
+    if (inHostApp && window.chrome.webview) {
+      window.chrome.webview.addEventListener("message", (ev) => {
+        const m = typeof ev.data === "string" ? ev.data : "";
+        if (m === "query-close") handleCloseRequest();
+      });
+    }
+    // En navegador: aviso nativo mínimo (WebView2 no lo muestra, por eso el flujo
+    // propio de arriba lo cubre en la app).
     window.addEventListener("beforeunload", (e) => {
-      if (tabs.some((t) => t.dirty)) { e.preventDefault(); e.returnValue = ""; }
+      if (!inHostApp && tabs.some((t) => t.dirty)) { e.preventDefault(); e.returnValue = ""; }
     });
+  }
+
+  // ===========================================================================
+  //  Cierre con detección de cambios sin guardar
+  // ===========================================================================
+  let closing = false;
+
+  async function handleCloseRequest() {
+    if (closing) return;
+    const dirtyTabs = tabs.filter((t) => t.dirty);
+    if (!dirtyTabs.length) { postToHost("force-close"); return; }
+
+    closing = true;
+    try {
+      const listHtml = "Hay cambios sin guardar en:" +
+        "<ul>" + dirtyTabs.map((t) => "<li>" + escapeHtml(t.name) + "</li>").join("") + "</ul>";
+      const choice = await dlg.show({
+        icon: "⚠️", title: "Cerrar XlsView",
+        html: listHtml,
+        buttons: [
+          { label: "Cancelar", value: "cancel" },
+          { label: "No guardar", value: "discard", variant: "danger" },
+          { label: dirtyTabs.length > 1 ? "Guardar todo" : "Guardar", value: "save", variant: "primary", default: true },
+        ],
+      });
+      if (choice === "cancel" || choice === undefined) { closing = false; return; }
+      if (choice === "save") {
+        // Guardar cada pestaña con cambios; si alguna se cancela, abortar el cierre.
+        for (const t of dirtyTabs) {
+          if (activeTab !== t) activateTab(t);
+          const ok = await saveActive();
+          if (ok === false) { closing = false; toast("Cierre cancelado", ""); return; }
+        }
+      }
+      // "discard" o guardado completo -> cerrar de verdad.
+      postToHost("force-close");
+    } catch (e) {
+      closing = false;
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
   }
 
   // Abrir un archivo. En la app de escritorio usamos el diálogo nativo del host
