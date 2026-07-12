@@ -89,10 +89,63 @@
 
   function toast(msg, kind) {
     const t = $("toast");
-    t.textContent = msg;
+    t.textContent = "";
+    const span = document.createElement("span");
+    span.className = "toast-msg";
+    span.textContent = msg;
+    t.appendChild(span);
+
+    // Los errores llevan un botón "Copiar" para reportar el mensaje si hace falta.
+    if (kind === "err") {
+      const btn = document.createElement("button");
+      btn.className = "toast-copy";
+      btn.type = "button";
+      btn.title = "Copiar el mensaje de error";
+      btn.innerHTML = "📋 Copiar";
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        copyErrorText(String(msg), btn);
+      });
+      t.appendChild(btn);
+    }
+
     t.className = "show" + (kind ? " " + kind : "");
     clearTimeout(toast._t);
-    toast._t = setTimeout(() => { t.className = ""; }, 2600);
+    // Los toasts de error permanecen 4 s visibles; el resto, 2.6 s.
+    const ms = kind === "err" ? 4000 : 2600;
+    toast._t = setTimeout(() => { t.className = ""; }, ms);
+  }
+
+  // Copia el texto del error al portapapeles y confirma en el propio botón.
+  // Usa la API async si está disponible; si no, un fallback con execCommand.
+  function copyErrorText(text, btn) {
+    const done = () => {
+      const prev = btn.innerHTML;
+      btn.innerHTML = "✓ Copiado";
+      // Mantener el toast visible unos segundos más tras copiar.
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => { $("toast").className = ""; }, 3000);
+      setTimeout(() => { btn.innerHTML = prev; }, 1500);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+    } else {
+      fallbackCopy(text, done);
+    }
+  }
+
+  function fallbackCopy(text, onDone) {
+    try {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+      if (onDone) onDone();
+    } catch (e) { /* si no se puede copiar, no hacemos nada */ }
   }
 
   // ---------------------------------------------------------------------------
@@ -977,7 +1030,11 @@
     try {
       showLoading("Abriendo " + (displayName || "") + "…");
       const res = await fetch("/xls/" + token, { cache: "no-store" });
-      if (!res.ok) throw new Error("HTTP " + res.status);
+      if (!res.ok) {
+        let detail = "HTTP " + res.status;
+        try { const j = await res.json(); if (j && j.error) detail += " — " + j.error; } catch (e) {}
+        throw new Error(detail);
+      }
       const buf = await res.arrayBuffer();
       const name = displayName || decodeURIComponent(token.split("/").pop() || "archivo");
       await openArrayBuffer(buf, name, token);
@@ -1229,6 +1286,7 @@
           if (j && j.saved) {
             if (j.name) { activeTab.name = j.name; renderTabs(); updateToolbar(); }
             if (j.token) activeTab.token = j.token;
+            if (j.path) pushRecent(j.path, j.name);
             markDirty(activeTab, false);
             toast("Guardado como " + (j.name || "") + " ✓", "ok");
             return true;
@@ -1363,6 +1421,7 @@
     $("btnChart").disabled = !has;
     $("btnValidate").disabled = !has;
     $("btnForm").disabled = !has;
+    if (window.XlsxMenus) window.XlsxMenus.refresh();
     $("curName").textContent = has
       ? activeTab.name + (activeTab.dirty ? "  •" : "")
       : "— sin archivo —";
@@ -1548,6 +1607,7 @@
             // path viene como "/xls/<token>"
             const token = path.replace(/^\/xls\//, "");
             await openFromToken(token);
+            registerRecentFromToken(token);
           }
         }
       } catch (e) { /* servidor puede no exponer /pending */ }
@@ -1783,6 +1843,82 @@
     $("btnForm").addEventListener("click", () => {
       if (!activeTab) return;
       window.XlsxForm.open();
+    });
+  }
+
+  // ===========================================================================
+  //  Archivos recientes (persistidos en localStorage)
+  // ===========================================================================
+  const RECENT_STORE = "xlsview.recent";
+  const RECENT_MAX = 12;
+
+  function getRecents() {
+    try { return JSON.parse(localStorage.getItem(RECENT_STORE) || "[]"); }
+    catch (e) { return []; }
+  }
+
+  // Registra (o promueve al frente) un archivo abierto/guardado con ruta real.
+  function pushRecent(path, name) {
+    if (!path) return;
+    let list = getRecents().filter((r) => r.path !== path);
+    list.unshift({ path: path, name: name || path.split(/[\\/]/).pop(), at: Date.now() });
+    if (list.length > RECENT_MAX) list = list.slice(0, RECENT_MAX);
+    try { localStorage.setItem(RECENT_STORE, JSON.stringify(list)); } catch (e) {}
+    if (window.XlsxMenus) window.XlsxMenus.refresh();
+  }
+
+  function clearRecents() {
+    try { localStorage.removeItem(RECENT_STORE); } catch (e) {}
+    if (window.XlsxMenus) window.XlsxMenus.refresh();
+  }
+
+  // Resuelve la ruta real de un token ya servido (host) y lo registra reciente.
+  async function registerRecentFromToken(token) {
+    if (!inHostApp) return;
+    try {
+      const res = await fetch("/pathfor?token=" + encodeURIComponent(token), { cache: "no-store" });
+      const j = await res.json().catch(() => ({}));
+      if (j && j.path) pushRecent(j.path, j.path.split(/[\\/]/).pop());
+    } catch (e) { /* sin host o sin ruta: no se registra */ }
+  }
+
+  // Reabre un archivo reciente por su ruta real (pide al host que lo registre).
+  async function openRecent(path) {
+    if (!inHostApp) { toast("Recientes solo en la app de escritorio", "err"); return; }
+    try {
+      showLoading("Abriendo…");
+      const res = await fetch("/openpath?path=" + encodeURIComponent(path), { method: "POST" });
+      const j = await res.json().catch(() => ({}));
+      if (j && j.opened && j.token) {
+        const token = j.token.replace(/^\/xls\//, "");
+        await openFromToken(token, j.name);
+        pushRecent(j.path || path, j.name);
+      } else {
+        toast("El archivo ya no existe; se quita de recientes", "err");
+        const list = getRecents().filter((r) => r.path !== path);
+        try { localStorage.setItem(RECENT_STORE, JSON.stringify(list)); } catch (e) {}
+        if (window.XlsxMenus) window.XlsxMenus.refresh();
+      }
+    } catch (e) {
+      toast("No se pudo abrir: " + e.message, "err");
+    } finally {
+      hideLoading();
+    }
+  }
+
+  // ===========================================================================
+  //  Barra de menús clásicos desplegables (menus.js)
+  // ===========================================================================
+  function initMenus() {
+    if (!window.XlsxMenus) return;
+    window.XlsxMenus.init({
+      getApi: () => univerAPI,
+      getActiveTab: () => activeTab,
+      toast: toast,
+      onDirty: () => { if (activeTab) markDirty(activeTab, true); },
+      getRecents: getRecents,
+      openRecent: openRecent,
+      clearRecents: clearRecents,
     });
   }
 
@@ -2090,6 +2226,7 @@
         if (j && j.opened && j.token) {
           const token = j.token.replace(/^\/xls\//, "");
           await openFromToken(token, j.name);
+          pushRecent(j.path, j.name);
         }
       } catch (e) {
         toast("No se pudo abrir: " + e.message, "err");
@@ -2113,6 +2250,7 @@
     initCharts();          // motor de gráficos (ECharts)
     wireValidation();      // validación de datos (plugin de Univer)
     initForm();            // formulario de captura (data entry)
+    initMenus();           // barra de menús clásicos desplegables (menus.js)
     setWelcome(true);
     updateToolbar();
 
@@ -2130,7 +2268,10 @@
     const file = params.get("file");
     if (file) {
       const token = file.replace(/^\/xls\//, "");
-      openFromToken(token).then(signalRendered);
+      openFromToken(token).then(() => {
+        registerRecentFromToken(token);
+        signalRendered();
+      });
     } else {
       // Sin archivo: arrancar con un libro nuevo en blanco (no pantalla vacía).
       newBlankWorkbook();

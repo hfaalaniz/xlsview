@@ -176,7 +176,8 @@ namespace XlsView
                     string token = RegisterFile(chosen);
                     string name = Path.GetFileName(chosen);
                     WriteJson(ctx, "{\"saved\":true,\"token\":\"" + JsonEsc("/xls/" + token) +
-                                   "\",\"name\":\"" + JsonEsc(name) + "\"}");
+                                   "\",\"name\":\"" + JsonEsc(name) +
+                                   "\",\"path\":\"" + JsonEsc(chosen) + "\"}");
                     return;
                 }
 
@@ -192,7 +193,39 @@ namespace XlsView
                     string token = RegisterFile(chosen);
                     string name = Path.GetFileName(chosen);
                     WriteJson(ctx, "{\"opened\":true,\"token\":\"" + JsonEsc("/xls/" + token) +
-                                   "\",\"name\":\"" + JsonEsc(name) + "\"}");
+                                   "\",\"name\":\"" + JsonEsc(name) +
+                                   "\",\"path\":\"" + JsonEsc(chosen) + "\"}");
+                    return;
+                }
+
+                // ---- POST /openpath?path=... ---- (reabrir un archivo reciente por ruta)
+                if (method == "POST" && path.Equals("/openpath", StringComparison.OrdinalIgnoreCase))
+                {
+                    string real = ctx.Request.QueryString["path"] ?? "";
+                    if (string.IsNullOrEmpty(real) || !File.Exists(real))
+                    {
+                        WriteJson(ctx, "{\"opened\":false}");
+                        return;
+                    }
+                    string token = RegisterFile(real);
+                    string name = Path.GetFileName(real);
+                    WriteJson(ctx, "{\"opened\":true,\"token\":\"" + JsonEsc("/xls/" + token) +
+                                   "\",\"name\":\"" + JsonEsc(name) +
+                                   "\",\"path\":\"" + JsonEsc(real) + "\"}");
+                    return;
+                }
+
+                // ---- GET /pathfor?token=<token> ---- (ruta real de un token ya servido,
+                //      para registrar como reciente lo abierto vía ?file=/xls/<token>)
+                if (path.Equals("/pathfor", StringComparison.OrdinalIgnoreCase))
+                {
+                    string token = ctx.Request.QueryString["token"] ?? "";
+                    token = token.Replace("/xls/", "");
+                    string real;
+                    if (_served.TryGetValue(token, out real) && File.Exists(real))
+                        WriteJson(ctx, "{\"path\":\"" + JsonEsc(real) + "\"}");
+                    else
+                        WriteJson(ctx, "{\"path\":null}");
                     return;
                 }
 
@@ -237,9 +270,20 @@ namespace XlsView
                 string mime2 = Mime.ContainsKey(ext2) ? Mime[ext2] : "application/octet-stream";
                 WriteFile(ctx, full, mime2);
             }
-            catch
+            catch (Exception ex)
             {
-                try { ctx.Response.StatusCode = 500; ctx.Response.Close(); } catch { }
+                // Devolver el mensaje real ayuda a diagnosticar (antes: 500 mudo).
+                try
+                {
+                    ctx.Response.StatusCode = 500;
+                    byte[] body = Encoding.UTF8.GetBytes(
+                        "{\"error\":\"" + JsonEsc(ex.GetType().Name + ": " + ex.Message) + "\"}");
+                    ctx.Response.ContentType = "application/json; charset=utf-8";
+                    ctx.Response.ContentLength64 = body.Length;
+                    ctx.Response.OutputStream.Write(body, 0, body.Length);
+                    ctx.Response.OutputStream.Close();
+                }
+                catch { try { ctx.Response.Close(); } catch { } }
             }
         }
 

@@ -103,6 +103,52 @@
   button.tb.icon-only { width: 34px; padding: 0; justify-content: center; font-size: 15px; }
   button.tb:disabled { opacity: 0.4; cursor: default; }
 
+  /* ---------- Menús clásicos desplegables ---------- */
+  #menubar { gap: 1px; }
+  .menu { position: relative; -webkit-app-region: no-drag; }
+  .menu > .menu-title {
+    -webkit-app-region: no-drag;
+    height: 30px; padding: 0 11px;
+    border: 1px solid transparent; border-radius: 6px;
+    background: transparent; color: var(--text);
+    cursor: pointer; font-size: 12.5px;
+    display: inline-flex; align-items: center; gap: 6px; white-space: nowrap;
+  }
+  .menu > .menu-title:hover { background: var(--panel2); }
+  .menu.open > .menu-title { background: var(--panel2); border-color: var(--border); }
+  .menu > .menu-title .caret { font-size: 9px; opacity: .6; margin-left: 1px; }
+
+  .menu-pop {
+    position: fixed; z-index: 3000;
+    min-width: 220px; max-height: 78vh; overflow-y: auto;
+    background: var(--panel2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 5px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.45);
+    -webkit-app-region: no-drag;
+  }
+  .menu-pop::-webkit-scrollbar { width: 8px; }
+  .menu-pop::-webkit-scrollbar-thumb { background: #555; border-radius: 4px; }
+
+  .menu-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 10px; border-radius: 5px;
+    cursor: pointer; font-size: 12.5px; color: var(--text);
+    white-space: nowrap; position: relative;
+  }
+  .menu-item:hover, .menu-item.hl { background: var(--accent); color: #fff; }
+  .menu-item .mi-ico { width: 18px; text-align: center; flex: none; font-size: 14px; }
+  .menu-item .mi-label { flex: 1 1 auto; }
+  .menu-item .mi-key { opacity: .55; font-size: 11px; margin-left: 18px; }
+  .menu-item .mi-arrow { opacity: .6; font-size: 10px; margin-left: 8px; }
+  .menu-item:hover .mi-key, .menu-item.hl .mi-key { opacity: .85; }
+  .menu-item.disabled { opacity: .35; pointer-events: none; }
+  .menu-sep { height: 1px; background: var(--border); margin: 5px 6px; }
+  .menu-head {
+    padding: 4px 10px 3px; font-size: 10.5px; letter-spacing: .04em;
+    text-transform: uppercase; color: var(--text-dim); pointer-events: none;
+  }
+  .menu-item.has-sub > .mi-label { flex: 1 1 auto; }
+
   /* ---------- Barra de pestañas (archivos abiertos) ---------- */
   #tabbar {
     height: var(--tabbar-h);
@@ -193,10 +239,23 @@
     font-size: 12.5px; box-shadow: 0 6px 24px rgba(0,0,0,0.4);
     opacity: 0; pointer-events: none; transition: opacity 0.25s; z-index: 100;
     border: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px; max-width: 70vw;
   }
   #toast.show { opacity: 1; }
-  #toast.err { background: #5a2020; border-color: #7a3030; }
+  /* Con botón de copiar (errores) el toast debe poder recibir clics. */
+  #toast.err { background: #5a2020; border-color: #7a3030; pointer-events: auto; }
   #toast.ok  { background: #204a24; border-color: #2f6a34; }
+  #toast .toast-msg { flex: 1 1 auto; overflow-wrap: anywhere; }
+  #toast .toast-copy {
+    flex: none; -webkit-app-region: no-drag;
+    display: inline-flex; align-items: center; gap: 5px;
+    background: rgba(255,255,255,0.12); color: #fff;
+    border: 1px solid rgba(255,255,255,0.25); border-radius: 6px;
+    padding: 3px 8px; font-size: 11.5px; cursor: pointer;
+    font-family: inherit; white-space: nowrap;
+  }
+  #toast .toast-copy:hover { background: rgba(255,255,255,0.22); }
+  #toast .toast-copy:active { background: rgba(255,255,255,0.30); }
 
   /* Univer usa tema claro por defecto; forzamos que su raíz llene el hueco */
   #univer-host .univer-app-container,
@@ -439,38 +498,32 @@
       <span class="filename" id="curName">— sin archivo —</span>
     </div>
 
-    <div class="tb-group">
-      <button class="tb" id="btnNew" title="Nuevo libro en blanco (Ctrl+N)">📄 Nuevo</button>
-      <button class="tb" id="btnOpen">📂 Abrir</button>
-      <button class="tb primary" id="btnSave" disabled>💾 Guardar</button>
-      <button class="tb" id="btnSaveAs" disabled>Guardar como…</button>
-    </div>
+    <!-- Barra de menús clásicos (se rellena por JS: buildMenus) -->
+    <div class="tb-group" id="menubar"></div>
 
-    <div class="tb-sep"></div>
-
-    <div class="tb-group">
-      <button class="tb" id="btnPrint" title="Imprimir / Vista previa (Ctrl+P)" disabled>🖨️ Imprimir</button>
-      <button class="tb" id="btnPageSetup" title="Configurar página y márgenes" disabled>⚙️ Página</button>
-      <button class="tb" id="btnMacro" title="Macros: automatizar tareas con scripts" disabled>⚡ Macro</button>
-      <button class="tb" id="btnChart" title="Crear gráfico del rango seleccionado" disabled>📊 Gráfico</button>
-      <button class="tb" id="btnValidate" title="Validación de datos del rango seleccionado" disabled>✓ Validar</button>
-      <button class="tb" id="btnForm" title="Formulario de captura de registros" disabled>📝 Formulario</button>
-    </div>
-
-    <div class="tb-sep"></div>
-
-    <div class="tb-group">
+    <div class="tb-group" style="margin-left:auto">
       <button class="tb icon-only" id="btnZoomOut" title="Alejar" disabled>−</button>
       <button class="tb icon-only" id="btnZoomIn" title="Acercar" disabled>+</button>
-    </div>
-
-    <div class="tb-sep"></div>
-
-    <div class="tb-group">
+      <div class="tb-sep"></div>
       <button class="tb icon-only" id="btnMin" title="Minimizar (Ctrl+M)">▁</button>
       <button class="tb icon-only" id="btnFull" title="Pantalla completa (F11)">⛶</button>
       <button class="tb icon-only" id="btnClose" title="Cerrar (Esc)">✕</button>
     </div>
+  </div>
+
+  <!-- Botones de acción heredados (ocultos): conservan el wiring existente;
+       los items de menú los disparan vía .click(). NO eliminar. -->
+  <div id="legacyButtons" style="display:none">
+    <button class="tb" id="btnNew"></button>
+    <button class="tb" id="btnOpen"></button>
+    <button class="tb primary" id="btnSave" disabled></button>
+    <button class="tb" id="btnSaveAs" disabled></button>
+    <button class="tb" id="btnPrint" disabled></button>
+    <button class="tb" id="btnPageSetup" disabled></button>
+    <button class="tb" id="btnMacro" disabled></button>
+    <button class="tb" id="btnChart" disabled></button>
+    <button class="tb" id="btnValidate" disabled></button>
+    <button class="tb" id="btnForm" disabled></button>
   </div>
 
   <!-- ---------- Pestañas ---------- -->
@@ -902,4 +955,5 @@
 <script src="print.js"></script>
 <script src="chart.js"></script>
 <script src="form.js"></script>
+<script src="menus.js"></script>
 <script src="app.js"></script>
