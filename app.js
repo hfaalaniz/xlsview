@@ -336,6 +336,13 @@
       window.UniverSheetsHyperLinkUiEnUS,
     ].forEach((loc) => { if (loc) deepMergeLocale(mergedLocale, loc); });
 
+    // Traducción al español (propia). 0.5.5 no publica es-ES y su enum
+    // LocaleType tampoco lo incluye, así que en vez de registrar un idioma
+    // nuevo mergeamos el es-ES PARCIAL sobre el en-US ya combinado y seguimos
+    // usando LocaleType.EN_US como clave. Las claves traducidas quedan en
+    // español; las que falten conservan el inglés (fallback natural).
+    if (window.UniverXlsViewEsES) deepMergeLocale(mergedLocale, window.UniverXlsViewEsES);
+
     const cfg = {
       locale: LocaleType.EN_US,
       locales: { [LocaleType.EN_US]: mergedLocale },
